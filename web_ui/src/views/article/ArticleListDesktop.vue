@@ -6,23 +6,46 @@
         :style="{ background: '#fff', padding: '0', borderRight: '1px solid #eee', display: 'flex', flexDirection: 'column', border: 0 }">
         <a-card :bordered="false" title="公众号"
           :headStyle="{ padding: '12px 16px', borderBottom: '1px solid #eee', background: '#fff', zIndex: 1, border: 0 }">
+          <!-- 具名插槽#extra：卡片右上角额外操作区域 -->
           <template #extra>
-            <a-dropdown>
-              <a-button type="primary">
-                <template #icon><icon-plus /></template>
-                订阅
-                <icon-down />
-              </a-button>
-              <template #content>
-                <a-doption @click="showAddModal"><template #icon><icon-plus /></template>添加公众号</a-doption>
-                <a-doption @click="showAddFeaturedArticleModal"><template #icon><icon-link /></template>添加精选文章</a-doption>
-                <a-doption @click="exportMPS"><template #icon><icon-export /></template>导出公众号</a-doption>
-                <a-doption @click="importMPS"><template #icon><icon-import /></template>导入公众号</a-doption>
-                <a-doption @click="exportOPML"><template #icon><icon-share-external /></template>导出OPML</a-doption>
-              </template>
-            </a-dropdown>
+            <a-space>
+              <a-dropdown>
+                <!-- 订阅按钮 -->
+                <a-button type="primary">
+                  <template #icon><icon-plus /></template>
+                  订阅
+                  <icon-down />
+                </a-button>
+                <!-- 订阅里面的选项 -->
+                <template #content>
+                  <a-doption @click="showAddModal"><template #icon><icon-plus /></template>添加公众号</a-doption>
+                  <a-doption @click="showAddFeaturedArticleModal"><template #icon><icon-link /></template>添加精选文章</a-doption>
+                  <a-doption @click="exportMPS"><template #icon><icon-export /></template>导出公众号</a-doption>
+                  <a-doption @click="importMPS"><template #icon><icon-import /></template>导入公众号</a-doption>
+                  <a-doption @click="exportOPML"><template #icon><icon-share-external /></template>导出OPML</a-doption>
+                </template>
+              </a-dropdown>
+
+              <!-- 在分组按钮后面添加 -->
+              <a-dropdown>
+                <a-button type="outline">
+                  <template #icon><icon-folder /></template>
+                  文件夹
+                  <icon-down />
+                </a-button>
+                <template #content>
+                  <a-doption @click="showCreateFolderModal">
+                    <template #icon><icon-plus /></template>
+                    新建文件夹
+                  </a-doption>
+                </template>
+              </a-dropdown>
+
+            </a-space>
           </template>
+
           <div style="display: flex; flex-direction: column;; background: #fff">
+            <!-- 搜索框 -->
             <div style="margin-bottom: 12px;">
               <a-input-search 
                 v-model="mpSearchText" 
@@ -32,6 +55,7 @@
                 allow-clear 
                 size="small" />
             </div>
+            <!-- 选项卡 -->
             <div style="margin-bottom: 8px; padding: 0 8px;">
               <a-radio-group v-model="mpFilterType" type="button" size="small" style="width: 100%;">
                 <a-radio value="all" style="flex: 1; text-align: center;">全部</a-radio>
@@ -39,9 +63,10 @@
                 <a-radio value="disabled" style="flex: 1; text-align: center;">停用</a-radio>
               </a-radio-group>
             </div>
-            <a-list :data="mpList" :loading="mpLoading" bordered>
+            <!-- 公众号列表通过mpList循环渲染 -->
+            <!-- <a-list :data="mpList" :loading="mpLoading" bordered>
               <template #item="{ item, index }">
-                <a-list-item @click="handleMpClick(item.id)" :class="{ 'active-mp': activeMpId === item.id }"
+                <a-list-item @click="handleItemClick(item)" :class="{ 'active-mp': activeMpId === item.id }"
                   style="padding: 9px 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
                   <div style="display: flex; align-items: center;">
                     <img :src="Avatar(item.avatar)" width="40" style="float:left;margin-right:1rem;" />
@@ -66,9 +91,176 @@
                   </div>
                 </a-list-item>
               </template>
-            </a-list>
-            <a-pagination :total="mpPagination.total" simple @change="handleMpPageChange" :show-total="true"
-              style="margin-top: 1rem;" />
+            </a-list> -->
+            <!-- 统一列表循环 -->
+            <div style="flex: 1; overflow-y: auto; padding: 8px 0;">
+              
+              <!-- ========== 1. 系统项区域 ========== -->
+              <div class="system-section">
+                <div 
+                  v-for="item in systemItems" 
+                  :key="item.id"
+                  class="list-item"
+                  :class="{ active: activeItem.type === 'system' && activeItem.id === item.id }"
+                  @click="handleLeftItemClick(item)"
+                >
+                  <icon-file v-if="item.icon === 'icon-file'" />
+                  <icon-star v-else />
+                  <span style="flex: 1;">{{ item.name }}</span>
+                  <!-- <span class="item-count">({{ item.count }})</span> -->
+                </div>
+              </div>
+              
+              <!-- 分隔线 -->
+              <div class="section-divider"></div>
+              
+              <!-- ========== 2. 自定义文件夹区域 ========== -->
+              <div class="folders-section" v-if="folderTree.length > 0">
+                <div 
+                  v-for="folder in folderTree" 
+                  :key="folder.id"
+                  class="folder-wrapper"
+                >
+                  <!-- 文件夹本身 -->
+                  <div 
+                    class="list-item folder-item"
+                    :class="{ 
+                      active: activeItem.type === 'folder' && activeItem.id === folder.id,
+                      'drag-over': dragOverFolderId === folder.id
+                    }"
+                    @click="handleLeftItemClick(folder)"
+                    @dragover="(e) => onDragOver(e, folder.id)"
+                    @dragleave="onDragLeave"
+                    @drop="(e) => onDropToFolder(e, folder.id)"
+                  >
+                    <span class="folder-arrow" @click.stop="toggleFolder(folder.id)">
+                      <icon-right v-if="!folder.expanded" />
+                      <icon-down v-else />
+                    </span>
+                    <icon-folder v-if="!folder.isEditing"/>
+                    <!-- 编辑模式：输入框 -->
+                    <input 
+                      v-if="folder.isEditing"
+                      v-model="folder.editName"
+                      type="text"
+                      class="folder-edit-input"
+                      @blur="saveFolderName(folder)"
+                      @keyup.enter="saveFolderName(folder)"
+                      @keyup.esc="cancelEditFolder(folder)"
+                      @click.stop
+                      autofocus
+                    />
+                    <!-- 显示模式：名称 -->
+                    <span 
+                      v-else
+                      style="flex: 1;" 
+                      @dblclick.stop="startEditFolder(folder)"
+                    >
+                      {{ folder.name }}
+                    </span>
+                    <!-- 删除按钮（放在计数前面）：只在选中且非编辑状态时显示 -->
+                    <a-button 
+                      v-if="activeItem.type === 'folder' && activeItem.id === folder.id && !folder.isEditing"
+                      size="mini" 
+                      type="text" 
+                      status="danger" 
+                      @click.stop="confirmDeleteFolder(folder)"
+                    >
+                      <template #icon><icon-delete /></template>
+                    </a-button>
+                    <!-- 数量显示：只在非编辑状态下显示 -->
+                    <span  v-if="!folder.isEditing" class="item-count">({{ folder.feeds.length }})</span>
+                  </div>
+                  
+                  <!-- 文件夹内的公众号列表 -->
+                  <div v-if="folder.expanded" class="folder-children">
+                    <div 
+                      v-for="feed in folder.feeds" 
+                      :key="feed.id"
+                      class="list-item"
+                      :class="{ active: activeItem.type === 'mp' && activeItem.id === feed.id }"
+                      draggable="true"
+                      @click="handleLeftItemClick(feed)"
+                      @dragstart="(e) => onDragStart(e, feed.id)"
+                      @dragend="onDragEnd"
+                    >
+                      <img :src="Avatar(feed.avatar || '')" class="avatar-small" />
+                      <span style="flex: 1;" :style="{ opacity: feed.status === 0 ? 0.5 : 1 }">{{ feed.name }}</span>
+                      <!-- 删除禁用按钮 -->
+                      <div v-if="activeItem.type === 'mp' && activeItem.id === feed.id && canManageMp(feed.id)" style="display: flex; gap: 4px;">
+                        <a-button size="mini" type="text" status="danger" @click.stop="deleteMp(feed.id)">
+                          <template #icon><icon-delete /></template>
+                        </a-button>
+                        <a-button size="mini" type="text" @click.stop="copyMpId(feed.id)">
+                          <template #icon><icon-copy /></template>
+                        </a-button>
+                        <a-button size="mini" type="text" @click.stop="toggleMpStatus(feed.id, feed.status === 1 ? 0 : 1)">
+                          <template #icon>
+                            <icon-stop v-if="feed.status === 1" />
+                            <icon-play-arrow v-else />
+                          </template>
+                        </a-button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- ========== 3. 未归档公众号区域 ========== -->
+              <div class="unassigned-section"
+                  @dragover.prevent
+                  @drop="onDropToUnassigned">
+                <div class="section-title">未归档公众号</div>
+                
+                <!-- 有公众号时显示列表 -->
+                <div v-if="unassignedMpList.length > 0">
+                  <div 
+                    v-for="mp in unassignedMpList" 
+                    :key="mp.id"
+                    class="list-item"
+                    :class="{ active: activeItem.type === 'mp' && activeItem.id === mp.id }"
+                    draggable="true"
+                    @click="handleLeftItemClick(mp)"
+                    @dragstart="(e) => onDragStart(e, mp.id)"
+                    @dragend="onDragEnd"
+                  >
+                    <img :src="Avatar(mp.avatar || '')" class="avatar-small" />
+                    <span style="flex: 1;" :style="{ opacity: mp.status === 0 ? 0.5 : 1 }">{{ mp.name }}</span>
+                    <!-- 删除禁用按钮:只在选中时显示 -->
+                    <div v-if="activeItem.type === 'mp' && activeItem.id === mp.id && canManageMp(mp.id)" style="display: flex; gap: 4px;">
+                      <a-button size="mini" type="text" status="danger" @click.stop="deleteMp(mp.id)">
+                        <template #icon><icon-delete /></template>
+                      </a-button>
+                      <a-button size="mini" type="text" @click.stop="copyMpId(mp.id)">
+                        <template #icon><icon-copy /></template>
+                      </a-button>
+                      <a-button size="mini" type="text" @click.stop="toggleMpStatus(mp.id, mp.status === 1 ? 0 : 1)">
+                        <template #icon>
+                          <icon-stop v-if="mp.status === 1" />
+                          <icon-play-arrow v-else />
+                        </template>
+                      </a-button>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- 没有公众号时显示提示 -->
+                <div v-else class="empty-drop-tip">
+                  <icon-export />
+                  <span>拖拽公众号到此可移出文件夹</span>
+                </div>
+              </div>
+              <!-- 分页（如果还需要的话） -->
+              <a-pagination 
+                v-if="false"
+                :total="mpPagination.total" 
+                simple 
+                @change="handleMpPageChange" 
+                :show-total="true"
+                style="margin-top: 1rem;" 
+              />
+              
+            </div>
           </div>
         </a-card>
       </a-layout-sider>
@@ -279,6 +471,19 @@
               {{ currentArticle.time }}
             </div>
           </a-modal>
+          <!-- 新建文件夹弹窗 -->
+          <a-modal v-model:visible="createFolderModalVisible" title="新建文件夹" @ok="handleCreateFolder">
+            <a-form>
+              <a-form-item label="文件夹名称">
+                <a-input 
+                  v-model="newFolderName" 
+                  placeholder="请输入文件夹名称"
+                  @keyup.enter="handleCreateFolder"
+                />
+              </a-form-item>
+            </a-form>
+          </a-modal>
+
         </a-card>
       </a-layout-content>
     </a-layout>
@@ -290,7 +495,7 @@ import { Avatar } from '@/utils/constants'
 import { translatePage, setCurrentLanguage } from '@/utils/translate';
 import { ref, onMounted, h, nextTick, watch, computed, resolveComponent } from 'vue'
 import axios from 'axios'
-import { IconApps, IconAtt, IconDelete, IconEdit, IconEye, IconRefresh, IconScan, IconWeiboCircleFill, IconWifi, IconCode, IconCheck, IconClose, IconStop, IconPlayArrow, IconCopy, IconPlus, IconDown, IconExport, IconImport, IconShareExternal, IconStar, IconStarFill, IconLink, IconSettings } from '@arco-design/web-vue/es/icon'
+import { IconFolder,IconRight,IconFile, IconExport, IconAtt, IconApps,IconDelete, IconEdit, IconEye, IconRefresh, IconScan, IconWeiboCircleFill, IconWifi, IconCode, IconCheck, IconClose, IconStop, IconPlayArrow, IconCopy, IconPlus, IconDown, IconImport, IconShareExternal, IconStar, IconStarFill, IconLink, IconSettings } from '@arco-design/web-vue/es/icon'
 import { getArticles, deleteArticle as deleteArticleApi, ClearArticle, ClearDuplicateArticle, getArticleDetail, getRefreshArticleTaskStatus, refreshArticle as refreshArticleApi, toggleArticleFavoriteStatus, toggleArticleReadStatus } from '@/api/article'
 import { ExportOPML, ExportMPS, ImportMPS } from '@/api/export'
 import ExportModal from '@/components/ExportModal.vue'
@@ -304,19 +509,50 @@ import router from '@/router'
 import { deleteMpApi } from '@/api/subscription'
 import TextIcon from '@/components/TextIcon.vue'
 import { useUserPermissions } from '@/composables/useUserPermissions'
-
+import { Space } from '@arco-design/web-vue'
 const { hasPermission, loadPermissions } = useUserPermissions()
 import { ProxyImage } from '@/utils/constants'
+import { 
+  createFolder, 
+  getFolderList, 
+  deleteFolder, 
+  addFeedsToFolder, 
+  getFolderFeeds,
+  removeFeedFromFolder,
+  updateFolder
+} from '@/api/folder';
 
 const articles = ref([])
 const FEATURED_MP_ID = 'MP_WXS_FEATURED_ARTICLES'
 const FEATURED_MP_NAME = '精选文章'
 const loading = ref(false)
-const mpList = ref([])
+// const mpList = ref([])
 const mpLoading = ref(false)
 const activeMpId = ref('')
+const activeFolderId = ref(null)  // 👈 添加这一行
 const exportModal = ref()
 const aiSummaryModal = ref()
+
+// ========== 新增：左侧列表数据结构 ==========
+// 1. 系统项
+const systemItems = ref([
+  { id: '', name: '全部', type: 'system', icon: 'icon-file', count: 0 },
+  { id: 'MP_WXS_FEATURED_ARTICLES', name: '精选文章', type: 'system', icon: 'icon-star', count: 0 }
+])
+
+// 2. 文件夹树（每个文件夹包含子公众号）
+const folderTree = ref([])
+
+// 3. 未归档的公众号列表
+const unassignedMpList = ref([])
+
+// 4. 当前选中的项
+const activeItem = ref({ type: '', id: null })
+
+// 5. 拖拽相关
+let draggingFeedId: string | null = null
+const dragOverFolderId = ref<number | null>(null)
+// ========= 以上是左侧列表的新增数据结构 ==========
 
 const selectedRowKeys = ref([])
 const mpPagination = ref({
@@ -335,6 +571,463 @@ const mpSearchText = ref('')
 const onlyFavorite = ref(false)
 const featuredArticleModalVisible = ref(false)
 const featuredArticleUrl = ref('')
+// ========== 文件夹相关 ==========
+const createFolderModalVisible = ref(false)
+const newFolderName = ref('')
+
+
+// 显示新建弹窗
+const showCreateFolderModal = () => {
+  newFolderName.value = ''
+  createFolderModalVisible.value = true
+}
+
+// 创建文件夹（调用后端API）
+const handleCreateFolder = async () => {
+  if (!newFolderName.value.trim()) {
+    Message.warning('请输入文件夹名称')
+    return
+  }
+  
+  try {
+    const res = await createFolder(newFolderName.value.trim())
+    if (res && res.id) {
+      await buildLeftSidebarData('')  // ← 改这里
+      createFolderModalVisible.value = false
+      newFolderName.value = ''
+      Message.success('文件夹创建成功')
+    } else {
+      Message.error('创建失败')
+    }
+  } catch (error: any) {
+    console.error('创建文件夹失败:', error)
+    Message.error(error || '创建失败')
+  }
+}
+
+// 确认删除文件夹
+const confirmDeleteFolder = (folder: any) => {
+  Modal.confirm({
+    title: '确认删除',
+    content: `确定要删除文件夹"${folder.name}"吗？删除文件夹会删除其中的公众号。`,
+    okText: '确认删除',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        await deleteFolder(folder.id)
+        await buildLeftSidebarData('')  //  改
+        
+        if (activeFolderId.value === folder.id) {
+          activeFolderId.value = null
+          activeMpId.value = ''
+          await fetchArticles()
+        }
+        Message.success(`已删除文件夹"${folder.name}"`)
+      } catch (error: any) {
+        console.error('删除文件夹失败:', error)
+        Message.error(error || '删除失败')
+      }
+    }
+  })
+}
+// 开始编辑文件夹名称
+const startEditFolder = (folder) => {
+  folder.isEditing = true
+  folder.editName = folder.name
+}
+
+// 保存文件夹名称
+
+let isSaving = false  // 防止重复保存
+
+const saveFolderName = async (folder) => {
+  if (!folder.isEditing || isSaving) return
+  
+  const newName = folder.editName?.trim()
+  if (!newName || newName === folder.name) {
+    folder.isEditing = false
+    return
+  }
+  
+  isSaving = true
+  try {
+    await updateFolder(folder.id, newName)
+    folder.name = newName
+    Message.success('文件夹名称修改成功')
+  } catch (error) {
+    console.error('修改文件夹名称失败:', error)
+    Message.error(error?.response?.data?.detail || '修改失败')
+  } finally {
+    folder.isEditing = false
+    isSaving = false
+  }
+}
+
+// 取消编辑
+const cancelEditFolder = (folder) => {
+  folder.isEditing = false
+}
+// ========== 构建左侧数据 ==========
+const buildLeftSidebarData = async (searchKeyword = '') => {
+  try {
+    console.log('开始构建左侧数据...')
+    
+    // 1. 并行获取所有文件夹和所有公众号（不分页，假设不会超过100个）
+    const [folderListRes, allFeedsRes] = await Promise.all([
+      getFolderList(),
+      getSubscriptions({ page: 0, pageSize: 100 })
+    ])
+
+
+    // 2. 处理文件夹列表
+    let backendFolders = []
+    if (Array.isArray(folderListRes)) {
+      backendFolders = folderListRes
+    } else if (folderListRes?.data && Array.isArray(folderListRes.data)) {
+      backendFolders = folderListRes.data
+    }
+    console.log('backendFolders 示例:', backendFolders[0])
+    console.log('backendFolders 完整数据:', backendFolders)
+
+
+    // 3. 处理所有公众号
+    // getSubscriptions 返回的格式是 { list: [], total: 0, page: {...} }
+    let allFeeds = []
+    if (allFeedsRes?.list) {
+      // 先过滤掉系统项（精选文章）
+      let filteredFeeds = allFeedsRes.list.filter(item => item.id !== FEATURED_MP_ID)
+      // 3.1 根据启用/停用选项卡筛选状态：根据 mpFilterType 筛选状态
+      if (mpFilterType.value === 'active') {
+        filteredFeeds = filteredFeeds.filter(item => item.status === 1)
+      } else if (mpFilterType.value === 'disabled') {
+        filteredFeeds = filteredFeeds.filter(item => item.status === 0)
+      }
+      // 'all' 时不过滤
+      // allFeeds = filteredFeeds
+      allFeeds = filteredFeeds.map(feed => ({
+        id: feed.id,
+        name: feed.mp_name || feed.name,  // 优先使用 mp_name
+        status: feed.status,
+        avatar: feed.mp_cover || feed.avatar || ''
+      }))
+    }
+
+    // 4. 构建文件夹树
+    const folderTreeData = []
+    const allArchivedFeedIds = new Set() // 记录所有已在文件夹中的公众号ID，用于排除未归档列表
+
+    for (const folder of backendFolders) {
+      // 4.1 获取该文件夹内的所有公众号
+      let feedsInFolder = []
+      try {
+        const feedsRes = await getFolderFeeds(folder.id)
+        console.log(`文件夹 ${folder.name} 的 feedsRes:`, feedsRes)
+        if (feedsRes?.data?.feeds) {
+          feedsInFolder = feedsRes.data.feeds
+        } else if (feedsRes?.feeds) {
+          feedsInFolder = feedsRes.feeds
+        }
+      } catch (error) {
+        console.error(`获取文件夹 ${folder.name} 内的公众号失败:`, error)
+      }
+
+      //4.2记录这个文件夹内的所有公众号ID（用于构建未归档列表，不受筛选影响）
+      feedsInFolder.forEach(feed => {
+        allArchivedFeedIds.add(feed.id)
+      })
+      // 4.3 根据搜索关键词过滤文件夹内的公众号（公众号名称包含关键词才显示）
+      let filteredFeedsInFolder = feedsInFolder
+      if (searchKeyword) {
+        filteredFeedsInFolder = filteredFeedsInFolder.filter(feed => 
+          feed.name && feed.name.toLowerCase().includes(searchKeyword.toLowerCase())
+        )
+      }
+      // 4.4 根据启用/停用选项卡筛选状态：根据 mpFilterType 筛选状态
+      if (mpFilterType.value === 'active') {
+        filteredFeedsInFolder = filteredFeedsInFolder.filter(feed => feed.status === 1)
+      } else if (mpFilterType.value === 'disabled') {
+        filteredFeedsInFolder = filteredFeedsInFolder.filter(feed => feed.status === 0)
+      }
+      // 👇 关键修改：只要文件夹内有匹配的公众号，就显示该文件夹
+      // 即使 filteredFeedsInFolder 为空，如果搜索词为空也要显示文件夹
+      const shouldShowFolder = !searchKeyword || filteredFeedsInFolder.length > 0
+
+      // 4.5 构建文件夹树（只使用过滤后的数据）
+      folderTreeData.push({
+        id: folder.id,
+        name: folder.name,
+        type: 'folder',     // 用于区分系统项、文件夹和公众号
+        expanded: searchKeyword ? true : false,  // 搜索时自动展开
+        feedCount: filteredFeedsInFolder.length,
+        feeds: filteredFeedsInFolder.map(feed => ({
+          id: feed.id,
+          name: feed.name,
+          type: 'mp',
+          avatar: feed.avatar || '',
+          status: feed.status   // || 1 默认启用
+        })),
+        isEditing: false,      // 是否处于编辑模式
+        editName: folder.name  // 临时存储编辑中的名称
+      })
+    }
+
+    folderTree.value = folderTreeData
+
+    // 5. 构建未归档公众号列表（不在任何文件夹中的公众号）
+    let unassigned = allFeeds.filter(feed => !allArchivedFeedIds.has(feed.id))
+    console.log('过滤前的 unassigned 数量:', unassigned.length)
+    console.log('过滤前的 unassigned 名称:', unassigned.map(f => f.name))
+    // ========== 5.1 根据搜索关键词过滤未归档公众号 ==========
+    if (searchKeyword) {
+      unassigned = unassigned.filter(feed =>
+        feed.name && feed.name.toLowerCase().includes(searchKeyword.toLowerCase())
+      )
+      console.log('过滤后的 unassigned 数量:', unassigned.length)
+      console.log('过滤后的 unassigned 名称:', unassigned.map(f => f.name))
+    }
+
+    unassignedMpList.value = unassigned.map(feed => ({
+      id: feed.id || feed.mp_id,
+      name: feed.name || feed.mp_name,
+      type: 'mp',
+      avatar: feed.avatar || feed.mp_cover || '',
+      status: feed.status  
+    }))
+    // 👇 放在这里，查看赋值后的结果
+    console.log('unassignedMpList:', unassignedMpList.value.map(mp => mp.name))
+
+    console.log('左侧数据构建完成:', {
+      folders: folderTree.value.length,
+      archivedFeeds: allArchivedFeedIds.size,
+      unassignedFeeds: unassignedMpList.value.length
+    })
+
+  } catch (error) {
+    console.error('构建左侧数据失败:', error)
+  }
+}
+  
+// ========== 拖拽功能 ==========
+const onDragStart = (event, feedId) => {
+  draggingFeedId = feedId
+  event.dataTransfer.setData('text/plain', feedId)
+  event.dataTransfer.effectAllowed = 'move'
+  event.target.classList?.add('dragging')
+}
+
+const onDragEnd = (event) => {
+  draggingFeedId = null
+  dragOverFolderId.value = null
+  event.target.classList?.remove('dragging')
+}
+
+const onDragOver = (event, folderId) => {
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  dragOverFolderId.value = folderId
+}
+
+const onDragLeave = () => {
+  dragOverFolderId.value = null
+}
+
+const onDropToFolder = async (event, folderId) => {
+  event.preventDefault()
+  dragOverFolderId.value = null
+
+  const feedId = draggingFeedId || event.dataTransfer.getData('text/plain')
+  if (!feedId) return
+
+  try {
+    await addFeedsToFolder(folderId, [feedId])
+    Message.success('公众号已添加到文件夹')
+    await buildLeftSidebarData('')  // 刷新左侧数据
+
+    if (activeItem.value.type === 'mp' && activeItem.value.id === feedId) {
+      activeItem.value = { type: '', id: null }
+      articles.value = []
+    }
+  } catch (error) {
+    console.error('添加失败:', error)
+    Message.error(error?.response?.data?.detail || '添加失败')
+  } finally {
+    draggingFeedId = null
+  }
+}
+const onDropToUnassigned = async (event) => {
+  event.preventDefault()
+  
+  const feedId = draggingFeedId || event.dataTransfer.getData('text/plain')
+  if (!feedId) return
+  
+  // 查找这个公众号当前在哪个文件夹
+  let sourceFolderId = null
+  let sourceFeed = null
+  for (const folder of folderTree.value) {
+    const feed = folder.feeds.find(f => f.id === feedId)
+    if (feed) {
+      sourceFolderId = folder.id
+      sourceFeed = { ...feed }  // 复制一份，保留数据
+      break
+    }
+  }
+  
+  if (!sourceFolderId) {
+    Message.info('公众号已在未归档区域')
+    return
+  }
+  
+  try {
+    await removeFeedFromFolder(sourceFolderId, feedId)
+    
+    // 手动更新本地数据（立即生效，不用等刷新）
+    // 1. 从文件夹中移除
+    const folder = folderTree.value.find(f => f.id === sourceFolderId)
+    if (folder) {
+      const index = folder.feeds.findIndex(f => f.id === feedId)
+      if (index !== -1) folder.feeds.splice(index, 1)
+    }
+    
+    // 2. 添加到未归档列表（避免重复）
+    if (sourceFeed && !unassignedMpList.value.some(f => f.id === feedId)) {
+      unassignedMpList.value.push(sourceFeed)
+    }
+    
+    Message.success('公众号已移出文件夹')
+    
+    // 如果当前选中的是被移动的公众号，清空选中
+    if (activeItem.value.type === 'mp' && activeItem.value.id === feedId) {
+      activeItem.value = { type: '', id: null }
+      articles.value = []
+    }
+    
+  } catch (error) {
+    console.error('移出失败:', error)
+    Message.error(error?.response?.data?.detail || '移出失败')
+  } finally {
+    draggingFeedId = null
+  }
+}
+
+// ========== 文件夹展开/收起 ==========
+const toggleFolder = (folderId) => {
+  const folder = folderTree.value.find(f => f.id === folderId)
+  if (folder) {
+    folder.expanded = !folder.expanded
+  }
+}
+
+// ========== 点击处理 ==========
+const handleLeftItemClick = async (item) => {
+  // 1. 检查是否有正在编辑的文件夹，如果有，先保存
+  const editingFolder = folderTree.value.find(f => f.isEditing === true)
+  if (editingFolder) {
+    // 先保存正在编辑的文件夹
+    await saveFolderName(editingFolder)
+    // 如果保存后 item 可能发生变化，重新获取
+    if (item.id === editingFolder.id) {
+      // 如果点击的就是正在编辑的文件夹，保存后直接返回，避免重复处理
+      return
+    }
+  }
+  // 2. 处理点击事件
+  activeItem.value = { type: item.type, id: item.id }
+
+  if (item.type === 'system') {
+    activeMpId.value = item.id
+    activeFolderId.value = null
+    activeFeed.value = { name: item.name, id: item.id, mp_intro: '' }
+    pagination.value.current = 1
+    await fetchArticles()
+  } 
+  else if (item.type === 'folder') {
+    activeFolderId.value = item.id
+    activeMpId.value = null
+    activeFeed.value = { 
+      name: item.name, 
+      id: item.id, 
+      mp_intro: `包含 ${item.feeds.length} 个公众号` 
+    }
+    pagination.value.current = 1
+    await fetchArticlesByFolder(item)
+  }
+  else if (item.type === 'mp') {
+    activeMpId.value = item.id
+    activeFolderId.value = null
+    activeFeed.value = item
+    pagination.value.current = 1
+    await fetchArticles()
+  }
+}
+
+// ========== 获取文件夹内文章 ==========
+const fetchArticlesByFolder = async (folder) => {
+  if (!folder || !folder.id) {
+    articles.value = []
+    pagination.value.total = 0
+    return
+  }
+
+  loading.value = true
+  try {
+    const feedsInFolder = folder.feeds || []
+
+    if (feedsInFolder.length === 0) {
+      articles.value = []
+      pagination.value.total = 0
+      Message.info(`"${folder.name}" 文件夹暂无公众号`)
+      return
+    }
+
+    const allArticles = []
+    const mpIds = feedsInFolder.map(f => f.id)
+
+    const promises = mpIds.map(mpId =>
+      getArticles({
+        page: 0,
+        pageSize: 100,
+        mp_id: mpId,
+        only_favorite: onlyFavorite.value
+      }).catch(e => ({ list: [], total: 0 }))
+    )
+
+    const results = await Promise.all(promises)
+
+    results.forEach(result => {
+      const articleList = result?.list || []
+      if (articleList.length > 0) {
+        allArticles.push(...articleList.map(item => ({
+          ...item,
+          publish_time: item.publish_time || item.create_time || '-',
+          url: item.url || "https://mp.weixin.qq.com/s/" + item.id,
+          is_favorite: item.is_favorite === 1 ? 1 : 0
+        })))
+      }
+    })
+
+    allArticles.sort((a, b) => (b.publish_time || 0) - (a.publish_time || 0))
+
+    const start = (pagination.value.current - 1) * pagination.value.pageSize
+    const end = start + pagination.value.pageSize
+    articles.value = allArticles.slice(start, end)
+    pagination.value.total = allArticles.length
+
+  } catch (error) {
+    console.error('获取文件夹文章失败:', error)
+    Message.error('获取文章失败')
+  } finally {
+    loading.value = false
+  }
+}
+// ========= 获取文章列表 ==========
+
+
+
+
+
+
+
+
 
 const pagination = ref({
   current: 1,
@@ -555,7 +1248,8 @@ const columns = computed(() => {
       width: 90,
       ellipsis: true,
       render: ({ record }) => {
-        const mp = mpList.value.find(item => item.id === record.mp_id);
+        
+        const mp = [...unassignedMpList.value, ...folderTree.value.flatMap(f => f.feeds)].find(item => item.id === record.mp_id);
         return h('a', {
           style: {
             color: 'var(--color-link)',
@@ -645,19 +1339,30 @@ const columns = computed(() => {
 const handleMpPageChange = (page: number, pageSize: number) => {
   mpPagination.value.current = page
   mpPagination.value.pageSize = pageSize
-  fetchMpList()
+  // fetchMpList()
+  console.log('分页功能暂未实现，等待后续优化')
 }
 
 const handleMpSearch = () => {
-  mpPagination.value.current = 1
-  fetchMpList()
+  // mpPagination.value.current = 1
+  // fetchMpList()
+  console.log('搜索功能已启用')
+  buildLeftSidebarData(mpSearchText.value.trim())
 }
 
 // 监听筛选类型变化，重置分页并重新请求
+// watch(mpFilterType, () => {
+//   mpPagination.value.current = 1
+//   // fetchMpList()
+//   console.log('分页功能暂未实现，等待后续优化')
+// })
+// 监听筛选类型变化，重新构建左侧数据
 watch(mpFilterType, () => {
-  mpPagination.value.current = 1
-  fetchMpList()
+  // buildLeftSidebarData()  // 重新构建左侧数据
+  buildLeftSidebarData(mpSearchText.value.trim())  // 保留搜索关键词
+
 })
+
 const rssFormat = ref('atom')
 const activeFeed = ref({
   id: "",
@@ -696,7 +1401,7 @@ const handleAddFeaturedArticle = async () => {
         const task = await getFeaturedArticleTaskStatus(taskId)
         if (task?.status === 'success') {
           Message.success(task?.message || '精选文章添加成功')
-          await fetchMpList()
+          // await fetchMpList()
           handleMpClick(FEATURED_MP_ID)
           return
         }
@@ -718,7 +1423,10 @@ const handleAddFeaturedArticle = async () => {
 const handleMpClick = (mpId: string) => {
   activeMpId.value = mpId
   pagination.value.current = 1
-  activeFeed.value = mpList.value.find(item => item.id === activeMpId.value)
+  activeFolderId.value = null  // 👈 添加这行，清空文件夹选中
+  // activeFeed.value = mpList.value.find(item => item.id === activeMpId.value)
+  const allMps = [...unassignedMpList.value, ...folderTree.value.flatMap(f => f.feeds)]
+activeFeed.value = allMps.find(item => item.id === activeMpId.value) || { name: '全部', id: activeMpId.value, mp_intro: '' }
   console.log(activeFeed.value)
 
   fetchArticles()
@@ -727,6 +1435,9 @@ const handleMpClick = (mpId: string) => {
 const fetchArticles = async () => {
   loading.value = true
   try {
+    // 判断是否选择了“精选文章”
+    const isFeatured = activeMpId.value === FEATURED_MP_ID
+
     console.log('请求参数:', {
       page: pagination.value.current - 1,
       pageSize: pagination.value.pageSize,
@@ -741,8 +1452,8 @@ const fetchArticles = async () => {
       pageSize: pagination.value.pageSize,
       search: searchText.value,
       status: filterStatus.value,
-      mp_id: activeMpId.value,
-      only_favorite: onlyFavorite.value
+      mp_id: isFeatured ? undefined : activeMpId.value,  // 精选文章时不按 mp_id 筛选
+      only_favorite: isFeatured || onlyFavorite.value   // 精选文章时强制只显示收藏的
     })
 
     // 确保数据包含必要字段
@@ -873,7 +1584,9 @@ const openRssFeed = () => {
     window.open(`/feed${search}/all.${format}`, '_blank')
     return
   }
-  const activeMp = mpList.value.find(item => item.id === activeMpId.value)
+  // const activeMp = mpList.value.find(item => item.id === activeMpId.value)
+  const allMps = [...unassignedMpList.value, ...folderTree.value.flatMap(f => f.feeds)]
+  const activeMp = allMps.find(item => item.id === activeMpId.value)
   if (activeMp) {
     window.open(`/feed${search}/${activeMpId.value}.${format}`, '_blank')
   }
@@ -1102,68 +1815,72 @@ const handleAIQA = () => {
 }
 
 
-onMounted(() => {
+onMounted(async () => {
   console.log('组件挂载，开始获取数据')
-  loadPermissions()
-  initIssourceUrl() // 初始化 issourceUrl 值
-  fetchMpList().then(() => {
-    console.log('公众号列表获取完成')
-    fetchArticles()
-  }).catch(err => {
-    console.error('初始化失败:', err)
-  })
+  await loadPermissions()
+  initIssourceUrl()
+  
+  // 构建左侧数据
+  await buildLeftSidebarData('')
+  
+  // 默认获取文章列表（全部）
+  activeMpId.value = ''
+  await fetchArticles()
+  
+  console.log('✅ ArticleListDesktop.vue 已加载，分组功能已启用')
 })
 
-const fetchMpList = async () => {
-  mpLoading.value = true
-  try {
-    // 根据筛选类型确定 status 参数
-    let statusParam: number | undefined = undefined
-    if (mpFilterType.value === 'active') {
-      statusParam = 1
-    } else if (mpFilterType.value === 'disabled') {
-      statusParam = 0
-    }
-    // 'all' 时不传 status 参数
 
-    // 选择"全部"时，请求少2条（因为会添加"全部"选项，后端也会添加"精选文章"）
-    const adjustedPageSize = mpFilterType.value === 'all' && !mpSearchText.value
-      ? mpPagination.value.pageSize - 2
-      : mpPagination.value.pageSize
+// const fetchMpList = async () => {
+//   mpLoading.value = true
+//   try {
+//     // 根据筛选类型确定 status 参数
+//     let statusParam: number | undefined = undefined
+//     if (mpFilterType.value === 'active') {
+//       statusParam = 1
+//     } else if (mpFilterType.value === 'disabled') {
+//       statusParam = 0
+//     }
+//     // 'all' 时不传 status 参数
 
-    const res = await getSubscriptions({
-      page: mpPagination.value.current - 1,
-      pageSize: adjustedPageSize,
-      kw: mpSearchText.value,
-      status: statusParam
-    })
+//     // 选择"全部"时，请求少2条（因为会添加"全部"选项，后端也会添加"精选文章"）
+//     const adjustedPageSize = mpFilterType.value === 'all' && !mpSearchText.value
+//       ? mpPagination.value.pageSize - 2
+//       : mpPagination.value.pageSize
 
-    mpList.value = res.list.map(item => ({
-      id: item.id || item.mp_id,
-      name: item.name || item.mp_name,
-      avatar: item.avatar || item.mp_cover || '',
-      mp_intro: item.mp_intro || item.mp_intro || '',
-      article_count: item.article_count || 0,
-      status: item.status ?? 1
-    }))
-    // 只在筛选全部且无搜索时添加'全部'选项
-    if (mpFilterType.value === 'all' && !mpSearchText.value) {
-      mpList.value.unshift({
-        id: '',
-        name: '全部',
-        avatar: '/static/logo.svg',
-        mp_intro: '显示所有公众号文章',
-        article_count: res.total || 0,
-        status: 1
-      });
-    }
-    mpPagination.value.total = res.total || 0
-  } catch (error) {
-    console.error('获取公众号列表错误:', error)
-  } finally {
-    mpLoading.value = false
-  }
-}
+//     const res = await getSubscriptions({
+//       page: mpPagination.value.current - 1,
+//       pageSize: adjustedPageSize,
+//       kw: mpSearchText.value,
+//       status: statusParam
+//     })
+
+//     mpList.value = res.list.map(item => ({
+//       id: item.id || item.mp_id,
+//       name: item.name || item.mp_name,
+//       avatar: item.avatar || item.mp_cover || '',
+//       mp_intro: item.mp_intro || item.mp_intro || '',
+//       article_count: item.article_count || 0,
+//       status: item.status ?? 1
+//     }))
+//     // 只在筛选全部且无搜索时添加'全部'选项
+//     if (mpFilterType.value === 'all' && !mpSearchText.value) {
+//       mpList.value.unshift({
+//         id: '',
+//         name: '全部',
+//         avatar: '/static/logo.svg',
+//         mp_intro: '显示所有公众号文章',
+//         article_count: res.total || 0,
+//         status: 1
+//       });
+//     }
+//     mpPagination.value.total = res.total || 0
+//   } catch (error) {
+//     console.error('获取公众号列表错误:', error)
+//   } finally {
+//     mpLoading.value = false
+//   }
+// }
 
 const copyMpId = async (mpId: string) => {
   try {
@@ -1191,45 +1908,48 @@ const copyMpId = async (mpId: string) => {
 }
 
 const deleteMp = async (mpId: string) => {
-  if (!canManageMp(mpId)) {
-    return
-  }
-  try {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该订阅号吗？删除后将无法恢复。',
-      okText: '确认',
-      cancelText: '取消',
-      onOk: async () => {
-        await deleteMpApi(mpId);
-        Message.success('订阅号删除成功');
-        fetchMpList();
-      },
-      onCancel: () => {
-        Message.info('已取消删除操作');
+  if (!canManageMp(mpId)) return
+  
+  Modal.confirm({
+    title: '确认删除',
+    content: '确定要删除该订阅号吗？删除后将无法恢复。',
+    okText: '确认',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        await deleteMpApi(mpId)
+        Message.success('订阅号删除成功')
+        
+        // 重新构建左侧数据
+        await buildLeftSidebarData('')
+        
+        // 如果删除的是当前选中的公众号，清空选中状态
+        if (activeItem.value.type === 'mp' && activeItem.value.id === mpId) {
+          activeItem.value = { type: '', id: null }
+          activeMpId.value = ''
+          await fetchArticles()
+        }
+      } catch (error) {
+        console.error('删除订阅号失败:', error)
+        Message.error('删除订阅号失败，请稍后重试')
       }
-    });
-  } catch (error) {
-    console.error('删除订阅号失败:', error);
-    Message.error('删除订阅号失败，请稍后重试');
-  }
+    }
+  })
 }
 
 const toggleMpStatus = async (mpId: string, newStatus: number) => {
-  if (!canManageMp(mpId)) {
-    return
-  }
+  if (!canManageMp(mpId)) return
+  
   try {
-    await toggleMpStatusApi(mpId, newStatus);
-    Message.success(newStatus === 0 ? '公众号已禁用' : '公众号已启用');
-    // 更新本地数据
-    const index = mpList.value.findIndex(item => item.id === mpId);
-    if (index !== -1) {
-      mpList.value[index].status = newStatus;
-    }
+    await toggleMpStatusApi(mpId, newStatus)
+    Message.success(newStatus === 0 ? '公众号已禁用' : '公众号已启用')
+    
+    // 重新构建左侧数据（刷新状态显示）
+    await buildLeftSidebarData('')
+    
   } catch (error) {
-    console.error('更新公众号状态失败:', error);
-    Message.error('更新公众号状态失败');
+    console.error('更新公众号状态失败:', error)
+    Message.error('更新公众号状态失败')
   }
 }
 
@@ -1392,19 +2112,104 @@ const toggleFavoriteStatus = async (record: any) => {
   box-sizing: border-box;
 }
 
-.a-list-item {
+/* ========== 统一的左侧列表样式 ========== */
+
+/* 所有列表项的共同样式 */
+.list-item {
+  padding: 8px 12px;
+  margin: 2px 8px;
+  border-radius: 8px;
   cursor: pointer;
-  padding: 12px 16px;
-  transition: all 0.2s;
-  margin-bottom: 0 !important;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.2s ease;
+  user-select: none;
 }
 
-.a-list-item:hover {
+/* 悬浮效果 */
+.list-item:hover {
   background-color: var(--color-fill-2);
 }
 
-.active-mp {
+/* 选中状态（激活的项） */
+.list-item.active {
   background-color: var(--color-primary-light-1);
+  color: var(--color-primary-6);
+}
+
+/* 文件夹项的箭头区域 */
+.folder-arrow {
+  width: 20px;
+  display: inline-flex;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+/* 文件夹编辑输入框 */
+.folder-edit-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--color-primary-6);
+  border-radius: 4px;
+  outline: none;
+  font-size: 14px;
+  background: var(--color-bg-2);
+  color: var(--color-text-1);
+}
+/* 文件夹内的公众号子项（缩进显示） */
+.folder-children {
+  margin-left: 28px;
+}
+
+/* 文件夹内的公众号子项样式 */
+.folder-children .list-item {
+  padding-left: 12px;
+}
+
+/* 拖拽时的视觉反馈 */
+.list-item.dragging {
+  opacity: 0.5;
+}
+
+/* 拖拽目标高亮 */
+.folder-item.drag-over {
+  background-color: var(--color-primary-light-2);
+  border: 1px dashed var(--color-primary-6);
+}
+
+/* 分组区域 */
+.section-title {
+  padding: 12px 12px 6px 12px;
+  font-size: 12px;
+  color: var(--color-text-3);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.section-divider {
+  height: 1px;
+  background: var(--color-fill-3);
+  margin: 8px 12px;
+}
+
+.avatar-small {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.item-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-3);
+  flex-shrink: 0;
+}
+
+.active .item-count {
+  color: var(--color-primary-6);
 }
 
 .search-bar {
@@ -1462,7 +2267,6 @@ const toggleFavoriteStatus = async (record: any) => {
   box-sizing: border-box;
 }
 
-/* 确保内部表格容器正确 */
 :deep(.arco-card-body) {
   width: 100%;
   overflow: hidden;
@@ -1476,7 +2280,6 @@ const toggleFavoriteStatus = async (record: any) => {
 
 .arco-drawer-body {
   z-index: 9999 !important;
-  /* 确保抽屉在其他内容之上 */
 }
 
 :deep(.arco-btn .arco-icon-down) {
@@ -1487,7 +2290,6 @@ const toggleFavoriteStatus = async (record: any) => {
   transform: rotate(180deg);
 }
 
-/* 题图预览 tooltip 样式 */
 :deep(.image-preview-tooltip) {
   padding: 4px !important;
   background: transparent !important;
@@ -1497,15 +2299,34 @@ const toggleFavoriteStatus = async (record: any) => {
 :deep(.arco-tooltip-content) {
   background: transparent !important;
 }
+.empty-drop-tip {
+  padding: 16px 12px;
+  text-align: center;
+  color: var(--color-text-3);
+  font-size: 12px;
+  border: 1px dashed var(--color-fill-3);
+  border-radius: 8px;
+  margin: 8px;
+  background-color: var(--color-fill-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
 
+.empty-drop-tip:hover {
+  border-color: var(--color-primary-6);
+  background-color: var(--color-primary-light-1);
+}
 </style>
+
 <style>
 #article-model img {
   max-width: 100% !important;
-  border-width:0px !important;
+  border-width: 0px !important;
 }
-iframe{
-  width:100% !important;
-  border:0 !important;
+iframe {
+  width: 100% !important;
+  border: 0 !important;
 }
 </style>

@@ -29,6 +29,7 @@ from apis.ai_report import router as ai_report_router
 from apis.llm_config import router as llm_config_router
 from apis.ai_summary_task import router as ai_summary_task_router
 from apis.ai_qa import router as ai_qa_router
+from apis.folder import router as folder_router
 from views import router as views_router
 import apis
 import os
@@ -109,7 +110,7 @@ api_router.include_router(ai_report_router)
 api_router.include_router(llm_config_router)
 api_router.include_router(ai_summary_task_router)
 api_router.include_router(ai_qa_router)
-
+api_router.include_router(folder_router)
 resource_router = APIRouter(prefix="/static")
 resource_router.include_router(res_router)
 feeds_router = APIRouter()

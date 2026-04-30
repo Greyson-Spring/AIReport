@@ -20,3 +20,5 @@ from .filter_rule import FilterRule
 from .ai_summary_task import AISummaryTask
 # 导入基础模型
 from .base import *
+# 导入文件夹模型
+from .folder import Folder, FolderFeed

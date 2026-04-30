@@ -1,0 +1,1870 @@
+<template>
+  <a-spin :loading="fullLoading" tip="正在刷新..." size="large" style="width: 100%; height: 100%;">
+    <a-layout class="article-list">
+      
+      <a-layout-sider :width="300"
+        :style="{ background: '#fff', padding: '0', borderRight: '1px solid #eee', display: 'flex', flexDirection: 'column', border: 0 }">
+        <a-card :bordered="false" title="公众号"
+          :headStyle="{ padding: '12px 16px', borderBottom: '1px solid #eee', background: '#fff', zIndex: 1, border: 0 }">
+          <!-- 具名插槽#extra：卡片右上角额外操作区域 -->
+          <template #extra>
+            <a-space>
+              <a-dropdown>
+                <!-- 订阅按钮 -->
+                <a-button type="primary">
+                  <template #icon><icon-plus /></template>
+                  订阅
+                  <icon-down />
+                </a-button>
+                <!-- 订阅里面的选项 -->
+                <template #content>
+                  <a-doption @click="showAddModal"><template #icon><icon-plus /></template>添加公众号</a-doption>
+                  <a-doption @click="showAddFeaturedArticleModal"><template #icon><icon-link /></template>添加精选文章</a-doption>
+                  <a-doption @click="exportMPS"><template #icon><icon-export /></template>导出公众号</a-doption>
+                  <a-doption @click="importMPS"><template #icon><icon-import /></template>导入公众号</a-doption>
+                  <a-doption @click="exportOPML"><template #icon><icon-share-external /></template>导出OPML</a-doption>
+                </template>
+              </a-dropdown>
+
+              <!-- 在分组按钮后面添加 -->
+              <a-dropdown>
+                <a-button type="outline">
+                  <template #icon><icon-folder /></template>
+                  文件夹
+                  <icon-down />
+                </a-button>
+                <template #content>
+                  <a-doption @click="showCreateFolderModal">
+                    <template #icon><icon-plus /></template>
+                    新建文件夹
+                  </a-doption>
+                </template>
+              </a-dropdown>
+
+            </a-space>
+          </template>
+
+          <div style="display: flex; flex-direction: column;; background: #fff">
+            <!-- 搜索框 -->
+            <div style="margin-bottom: 12px;">
+              <a-input-search 
+                v-model="mpSearchText" 
+                placeholder="搜索公众号名称" 
+                @search="handleMpSearch" 
+                @keyup.enter="handleMpSearch"
+                allow-clear 
+                size="small" />
+            </div>
+            <!-- 选项卡 -->
+            <div style="margin-bottom: 8px; padding: 0 8px;">
+              <a-radio-group v-model="mpFilterType" type="button" size="small" style="width: 100%;">
+                <a-radio value="all" style="flex: 1; text-align: center;">全部</a-radio>
+                <a-radio value="active" style="flex: 1; text-align: center;">启用</a-radio>
+                <a-radio value="disabled" style="flex: 1; text-align: center;">停用</a-radio>
+              </a-radio-group>
+            </div>
+            <!-- 公众号列表通过mpList循环渲染 -->
+            <!-- <a-list :data="mpList" :loading="mpLoading" bordered>
+              <template #item="{ item, index }">
+                <a-list-item @click="handleItemClick(item)" :class="{ 'active-mp': activeMpId === item.id }"
+                  style="padding: 9px 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
+                  <div style="display: flex; align-items: center;">
+                    <img :src="Avatar(item.avatar)" width="40" style="float:left;margin-right:1rem;" />
+                    <a-typography-text strong style="line-height:32px;" :style="{ opacity: item.status === 0 ? 0.5 : 1 }">
+                      {{ item.name || item.mp_name }}
+                    </a-typography-text>
+                    <a-button v-if="activeMpId === item.id && canManageMp(item.id)" size="mini" type="text" status="danger"
+                      @click="$event.stopPropagation(); deleteMp(item.id)">
+                      <template #icon><icon-delete /></template>
+                    </a-button>
+                    <a-button v-if="activeMpId === item.id && canManageMp(item.id)" size="mini" type="text"
+                      @click="$event.stopPropagation(); copyMpId(item.id)">
+                      <template #icon><icon-copy /></template>
+                    </a-button>
+                    <a-button v-if="activeMpId === item.id && canManageMp(item.id)" size="mini" type="text"
+                      @click="$event.stopPropagation(); toggleMpStatus(item.id, item.status === 1 ? 0 : 1)">
+                      <template #icon>
+                        <icon-stop v-if="item.status === 1" />
+                        <icon-play-arrow v-else />
+                      </template>
+                    </a-button>
+                  </div>
+                </a-list-item>
+              </template>
+            </a-list> -->
+            <!-- 统一列表循环 -->
+            <div style="flex: 1; overflow-y: auto;">
+              <div v-if="mpLoading" style="text-align: center; padding: 20px;">加载中...</div>
+              
+              <div v-for="item in mpList" :key="item.id" style="margin-bottom: 2px;">
+                
+                <!-- 情况1：文件夹 -->
+                <div 
+                  v-if="item.type === 'folder'"
+                  @click="handleItemClick(item)"
+                  :class="{ 'active-item': activeFolderId === item.id }"
+                  class="list-item-folder"
+                >
+                  <div style="display: flex; align-items: center; width: 100%;">
+                    <span style="font-size: 22px; margin-right: 12px;">📁</span>
+                    <span style="flex: 1; font-weight: 500;">{{ item.name }}</span>
+                    <span style="font-size: 12px; color: #999; margin-right: 8px;">({{ item.mpIds?.length || 0 }})</span>
+                    <a-button size="mini" type="text" status="danger" @click.stop="confirmDeleteFolder(item)">
+                      <template #icon><icon-delete /></template>
+                    </a-button>
+                  </div>
+                </div>
+                
+                <!-- 情况2：系统项或公众号 -->
+                <div 
+                  v-else
+                  @click="handleItemClick(item)"
+                  :class="{ 'active-item': activeMpId === item.id }"
+                  class="list-item-mp"
+                >
+                  <div style="display: flex; align-items: center; width: 100%;">
+                    <img 
+                      :src="Avatar(item.avatar || '')" 
+                      width="32" 
+                      style="border-radius: 6px; margin-right: 12px;" 
+                    />
+                    <span style="flex: 1; font-weight: 500;">{{ item.name }}</span>
+                    <div v-if="item.type === 'mp' && activeMpId === item.id && canManageMp(item.id)" style="display: flex; gap: 4px;">
+                      <a-button size="mini" type="text" status="danger" @click.stop="deleteMp(item.id)">
+                        <template #icon><icon-delete /></template>
+                      </a-button>
+                      <a-button size="mini" type="text" @click.stop="copyMpId(item.id)">
+                        <template #icon><icon-copy /></template>
+                      </a-button>
+                      <a-button size="mini" type="text" @click.stop="toggleMpStatus(item.id, item.status === 1 ? 0 : 1)">
+                        <template #icon><icon-stop v-if="item.status === 1" /><icon-play-arrow v-else /></template>
+                      </a-button>
+                    </div>
+                  </div>
+                </div>
+                
+              </div>  <!-- 👈 这里闭合 v-for 的 div -->
+              
+              <a-pagination :total="mpPagination.total" simple @change="handleMpPageChange" :show-total="true"
+                style="margin-top: 1rem;" />
+                
+            </div>  <!-- 👈 这里闭合最外层的 div (flex: 1; overflow-y: auto;) -->
+          </div>
+        </a-card>
+      </a-layout-sider>
+
+      <a-layout-content style="padding: 20px;">
+        <a-page-header :title="activeFeed ? activeFeed.name : '全部'" :subtitle="'管理您的公众号订阅内容'" :show-back="false">
+          <template #extra>
+            <a-space>
+              <span style="font-size: 12px; color: var(--color-text-3);">{{ issourceUrl ? '原链接' : '内链' }}</span>
+              <a-switch 
+                v-model="issourceUrl" 
+                size="small" 
+                style="margin: 0 8px;">
+              </a-switch>
+
+
+              <a-button v-if="hasPermission('btn:ai-summary')" @click="handleAISummary">
+                <template #icon><icon-robot /></template>
+                AI摘要
+              </a-button>
+              <AISummaryModal ref="aiSummaryModal" />
+
+
+              <a-button v-if="hasPermission('btn:ai-report')" @click="handleAIReport">
+                <template #icon><icon-file /></template>
+                AI报告生成
+              </a-button>
+
+              <a-button v-if="hasPermission('btn:ai-qa')" @click="handleAIQA">
+                <template #icon><icon-message /></template>
+                AI问答
+              </a-button>
+
+              <a-button v-if="hasPermission('btn:export')" @click="handleExportShow()">
+                <template #icon><icon-export /></template>
+                导出
+              </a-button>
+              <ExportModal ref="exportModal"  />
+              <a-button @click="refresh" v-if="activeFeed?.id != '' && activeFeed?.id !== FEATURED_MP_ID">
+                <template #icon><icon-refresh /></template>
+                刷新
+              </a-button>
+              <a-dropdown v-if="hasPermission('btn:clean')">
+                <a-button v-if="activeFeed?.id == ''">
+                  <template #icon><icon-delete /></template>
+                  清理
+                  <icon-down />
+                </a-button>
+                <template #content>
+                  <a-doption @click="clear_articles">
+                    <template #icon> <TextIcon text="E" /></template>
+                    清理无效文章
+                  </a-doption>
+                  <a-doption @click="clear_duplicate_article">
+                    <template #icon> <TextIcon text="C" /></template>
+                    清理重复文章
+                  </a-doption>
+                </template>
+              </a-dropdown>
+              <a-button v-if="hasPermission('btn:refresh-auth')" @click="handleAuthClick">
+                <template #icon><icon-scan /></template>
+                刷新授权
+              </a-button>
+              <a-dropdown v-if="hasPermission('btn:subscribe')">
+                <a-button>
+                  <template #icon>
+                    <IconWifi />
+                  </template>
+                  订阅
+                  <icon-down />
+                </a-button>
+                <template #content>
+                  <a-doption @click="rssFormat = 'atom'; openRssFeed()"><template #icon>
+                      <TextIcon text="atom" />
+                    </template>ATOM</a-doption>
+                  <a-doption @click="rssFormat = 'rss'; openRssFeed()"><template #icon>
+                      <TextIcon text="rss" />
+                    </template>RSS</a-doption>
+                  <a-doption @click="rssFormat = 'json'; openRssFeed()"><template #icon>
+                      <TextIcon text="json" />
+                    </template>JSON</a-doption>
+                  <a-doption @click="rssFormat = 'md'; openRssFeed()"><template #icon>
+                      <TextIcon text="md" />
+                    </template>Markdown</a-doption>
+                  <a-doption @click="rssFormat = 'txt'; openRssFeed()"><template #icon>
+                      <TextIcon text="txt" />
+                    </template>Text</a-doption>
+                </template>
+              </a-dropdown>
+              <a-button v-if="hasPermission('btn:batch-delete')" type="primary" status="danger" @click="handleBatchDelete" :disabled="!selectedRowKeys.length">
+                <template #icon><icon-delete /></template>
+                批量删除
+              </a-button>
+            </a-space>
+          </template>
+        </a-page-header>
+
+        <a-card style="border:0">
+          <a-alert type="success" closable>{{ activeFeed?.mp_intro || "请选择一个公众号码进行管理,搜索文章后再点击订阅会有惊喜哟！！！" }}</a-alert>
+          <div class="search-bar">
+            <a-input-search class="search-input" v-model="searchText" placeholder="搜索文章标题" @search="handleSearch" @keyup.enter="handleSearch"
+              allow-clear />
+            <a-checkbox class="favorite-filter" :model-value="onlyFavorite" @change="handleFavoriteFilterChange">仅显示已收藏</a-checkbox>
+            <a-dropdown trigger="click" position="bl">
+              <a-button size="small">
+                <template #icon><icon-settings /></template>
+                列设置
+              </a-button>
+              <template #content>
+                <a-doption v-for="col in allColumnOptions" :key="col.key" @click.stop>
+                  <a-checkbox 
+                    :model-value="visibleColumns.includes(col.key)" 
+                    @change="(val) => toggleColumn(col.key, val)"
+                    :disabled="col.required"
+                  >
+                    {{ col.label }}
+                  </a-checkbox>
+                </a-doption>
+              </template>
+            </a-dropdown>
+          </div>
+          <a-table :columns="columns" :data="articles" :loading="loading" :pagination="pagination"
+            :scroll="{ x: '100%' }"
+            :row-selection="{
+            type: 'checkbox',
+            showCheckedAll: true,
+            width: 50,
+            fixed: true,
+            checkStrictly: true,
+            onlyCurrent: false
+          }" row-key="id" @page-change="handlePageChange" @page-size-change="handlePageSizeChange" v-model:selectedKeys="selectedRowKeys">
+            <template #status="{ record }">
+              <a-tag :color="statusColorMap[record.status]">
+                {{ statusTextMap[record.status] }}
+              </a-tag>
+            </template>
+            <template #actions="{ record }">
+              <a-space>
+                <a-button type="text" @click="viewArticle(record)" :title="record.id">
+                  <template #icon><icon-eye /></template>
+                </a-button>
+                <a-button type="text" @click="toggleFavoriteStatus(record)" :title="record.is_favorite === 1 ? '取消收藏' : '收藏'">
+                  <template #icon>
+                    <icon-star-fill v-if="record.is_favorite === 1" />
+                    <icon-star v-else />
+                  </template>
+                </a-button>
+                <a-button
+                  type="text"
+                  :loading="refreshingArticleIds.includes(String(record.id))"
+                  @click="refreshSingleArticle(record)"
+                >
+                  <template #icon><icon-refresh /></template>
+                </a-button>
+                <a-button type="text" status="danger" @click="deleteArticle(record.id)">
+                  <template #icon><icon-delete /></template>
+                </a-button>
+              </a-space>
+            </template>
+          </a-table>
+
+
+          <a-modal v-model:visible="refreshModalVisible" title="刷新设置">
+            <a-form :model="refreshForm" :rules="refreshRules">
+              <a-form-item label="起始页" field="startPage">
+                <a-input-number v-model="refreshForm.startPage" :min="1" />
+              </a-form-item>
+              <a-form-item label="结束页" field="endPage">
+                <a-input-number v-model="refreshForm.endPage" :min="1" />
+              </a-form-item>
+            </a-form>
+            <template #footer>
+              <a-button @click="refreshModalVisible = false">取消</a-button>
+              <a-button type="primary" @click="handleRefresh">确定</a-button>
+            </template>
+          </a-modal>
+          <a-modal v-model:visible="featuredArticleModalVisible" title="添加精选文章">
+            <a-form>
+              <a-form-item label="文章链接">
+                <div class="featured-url-input-wrapper">
+                  <a-input
+                    v-model="featuredArticleUrl"
+                    placeholder="请输入微信公众号文章链接"
+                    allow-clear
+                  />
+                  <div class="featured-url-example">eg：https://mp.weixin.qq.com/s/xxxxx</div>
+                </div>
+              </a-form-item>
+            </a-form>
+            <template #footer>
+              <a-button @click="featuredArticleModalVisible = false">取消</a-button>
+              <a-button type="primary" @click="handleAddFeaturedArticle">添加</a-button>
+            </template>
+          </a-modal>
+          <a-modal id="article-model" v-model:visible="articleModalVisible"
+            placement="left" :footer="false" :fullscreen="false" @before-close="resetScrollPosition">
+            <h2 id="topreader">{{ currentArticle.title }}</h2>
+            <div style="margin-top: 20px; color: var(--color-text-3); text-align: left">
+              <a-link :href="currentArticle.url" target="_blank">查看原文</a-link>
+              更新时间 ：{{ currentArticle.time }}
+            <a-link @click="viewArticle(currentArticle,-1)" target="_blank">上一篇 </a-link>
+            <a-space/>
+            <a-link @click="viewArticle(currentArticle,1)" target="_blank">下一篇 </a-link>
+            </div>
+            <div ref="shadowContainer" style="width: 100%; height: auto;"></div>
+
+            <div style="margin-top: 20px; color: var(--color-text-3); text-align: right">
+              {{ currentArticle.time }}
+            </div>
+          </a-modal>
+          <!-- 新建文件夹弹窗 -->
+          <a-modal v-model:visible="createFolderModalVisible" title="新建文件夹" @ok="handleCreateFolder">
+            <a-form>
+              <a-form-item label="文件夹名称">
+                <a-input 
+                  v-model="newFolderName" 
+                  placeholder="请输入文件夹名称"
+                  @keyup.enter="handleCreateFolder"
+                />
+              </a-form-item>
+            </a-form>
+          </a-modal>
+
+        </a-card>
+      </a-layout-content>
+    </a-layout>
+  </a-spin>
+</template>
+
+<script setup lang="ts">
+import { Avatar } from '@/utils/constants'
+import { translatePage, setCurrentLanguage } from '@/utils/translate';
+import { ref, onMounted, h, nextTick, watch, computed, resolveComponent } from 'vue'
+import axios from 'axios'
+import { IconApps, IconAtt, IconDelete, IconEdit, IconEye, IconRefresh, IconScan, IconWeiboCircleFill, IconWifi, IconCode, IconCheck, IconClose, IconStop, IconPlayArrow, IconCopy, IconPlus, IconDown, IconExport, IconImport, IconShareExternal, IconStar, IconStarFill, IconLink, IconSettings } from '@arco-design/web-vue/es/icon'
+import { getArticles, deleteArticle as deleteArticleApi, ClearArticle, ClearDuplicateArticle, getArticleDetail, getRefreshArticleTaskStatus, refreshArticle as refreshArticleApi, toggleArticleFavoriteStatus, toggleArticleReadStatus } from '@/api/article'
+import { ExportOPML, ExportMPS, ImportMPS } from '@/api/export'
+import ExportModal from '@/components/ExportModal.vue'
+import AISummaryModal from '@/components/AISummaryModal.vue'
+
+import { addFeaturedArticle, getFeaturedArticleTaskStatus, getSubscriptions, UpdateMps, toggleMpStatus as toggleMpStatusApi } from '@/api/subscription'
+import { inject } from 'vue'
+import { Message, Modal } from '@arco-design/web-vue'
+import { formatDateTime, formatTimestamp } from '@/utils/date'
+import router from '@/router'
+import { deleteMpApi } from '@/api/subscription'
+import TextIcon from '@/components/TextIcon.vue'
+import { useUserPermissions } from '@/composables/useUserPermissions'
+import { Space } from '@arco-design/web-vue'
+const { hasPermission, loadPermissions } = useUserPermissions()
+import { ProxyImage } from '@/utils/constants'
+import { 
+  createFolder, 
+  getFolderList, 
+  deleteFolder, 
+  addFeedsToFolder, 
+  getFolderFeeds,
+  removeFeedFromFolder 
+} from '@/api/folder';
+
+const articles = ref([])
+const FEATURED_MP_ID = 'MP_WXS_FEATURED_ARTICLES'
+const FEATURED_MP_NAME = '精选文章'
+const loading = ref(false)
+const mpList = ref([])
+const mpLoading = ref(false)
+const activeMpId = ref('')
+const activeFolderId = ref(null)  // 👈 添加这一行
+const exportModal = ref()
+const aiSummaryModal = ref()
+
+const selectedRowKeys = ref([])
+const mpPagination = ref({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showPageSize: false,
+  showJumper: false,
+  showTotal: true,
+  pageSizeOptions: [5, 10, 15]
+})
+const mpFilterType = ref('all') // 'active' | 'disabled' | 'all'
+const searchText = ref('')
+const filterStatus = ref('')
+const mpSearchText = ref('')
+const onlyFavorite = ref(false)
+const featuredArticleModalVisible = ref(false)
+const featuredArticleUrl = ref('')
+// ========== 文件夹相关 ==========
+const createFolderModalVisible = ref(false)
+const newFolderName = ref('')
+
+// 文件夹列表（存 localStorage）
+const folderList = ref<any[]>([])  // 后端文件夹列表
+
+// 显示新建弹窗
+const showCreateFolderModal = () => {
+  newFolderName.value = ''
+  createFolderModalVisible.value = true
+}
+
+// 创建文件夹（调用后端API）
+const handleCreateFolder = async () => {
+  if (!newFolderName.value.trim()) {
+    Message.warning('请输入文件夹名称')
+    return
+  }
+  
+  try {
+    const res = await createFolder(newFolderName.value.trim())
+    console.log('createFolder 返回:', res)  // res 应该是创建的文件夹对象
+    
+    // 因为 http 拦截器已经返回了 data，res 直接就是创建的文件夹
+    if (res && res.id) {
+      await refreshMpListWithFolders()
+      createFolderModalVisible.value = false
+      newFolderName.value = ''
+      Message.success('文件夹创建成功')
+    } else {
+      Message.error('创建失败')
+    }
+  } catch (error: any) {
+    console.error('创建文件夹失败:', error)
+    Message.error(error || '创建失败')
+  }
+}
+
+// 确认删除文件夹
+const confirmDeleteFolder = (folder: any) => {
+  Modal.confirm({
+    title: '确认删除',
+    content: `确定要删除文件夹"${folder.name}"吗？删除文件夹不会删除其中的公众号。`,
+    okText: '确认删除',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        const res = await deleteFolder(folder.id)
+        // res 应该是删除成功的响应，可能直接是 true 或空对象
+        
+        await refreshMpListWithFolders()
+        
+        // 如果删除的是当前选中的文件夹，清空选中状态
+        if (activeFolderId.value === folder.id) {
+          activeFolderId.value = null
+          activeMpId.value = ''
+          await fetchArticles()
+        }
+        
+        Message.success(`已删除文件夹"${folder.name}"`)
+      } catch (error: any) {
+        console.error('删除文件夹失败:', error)
+        Message.error(error || '删除失败')
+      }
+    }
+  })
+}
+
+
+
+
+// 刷新公众号列表（包含后端文件夹）
+const refreshMpListWithFolders = async () => {
+  // 先获取原始公众号列表
+  await fetchMpList()
+  
+  // 获取后端文件夹列表
+  let backendFolders: any[] = []
+  try {
+    const res = await getFolderList()
+    console.log('getFolderList返回：', res) // res应该直接是数组
+
+    // 因为 http 拦截器已经返回了 data，所以 res 直接就是文件夹数组
+    if (Array.isArray(res)) {
+      backendFolders = res
+      folderList.value = backendFolders
+    }
+  } catch (error) {
+    console.error('获取文件夹列表失败:', error)
+  }
+  
+  // 获取原始的 mpList
+  let realMpList = [...mpList.value]
+  
+  // 判断是否需要显示系统项（全部、精选文章）
+  const hasSystemItems = mpFilterType.value === 'all' && !mpSearchText.value
+  
+  // 创建新的列表
+  const newMpList: any[] = []
+  
+  // 1. 添加系统项（如果需要）
+  if (hasSystemItems) {
+    realMpList = realMpList.filter(item => item.id !== '' && item.id !== FEATURED_MP_ID)
+    
+    newMpList.push({
+      id: '',
+      name: '全部',
+      type: 'system',
+      avatar: '/static/logo.svg'
+    })
+    newMpList.push({
+      id: FEATURED_MP_ID,
+      name: '精选文章',
+      type: 'system',
+      avatar: ''
+    })
+  } else {
+    realMpList = realMpList.filter(item => item.id !== '' && item.id !== FEATURED_MP_ID)
+  }
+  
+  // 2. 添加文件夹（来自后端）
+  backendFolders.forEach(folder => {
+    newMpList.push({
+      id: folder.id,
+      name: folder.name,
+      type: 'folder',
+      avatar: '',
+      feedCount: folder.feed_count || 0
+    })
+  })
+  
+  // 3. 添加真实公众号
+  realMpList.forEach(mp => {
+    newMpList.push({
+      ...mp,
+      type: 'mp'
+    })
+  })
+  
+  mpList.value = newMpList
+}
+
+
+// 统一的点击处理
+
+const handleItemClick = (item) => {
+  if (item.type === 'folder') {
+    // 点击文件夹
+    activeFolderId.value = item.id
+    activeMpId.value = null
+    activeFeed.value = { name: item.name, id: item.id, mp_intro: `包含 ${item.mpIds?.length || 0} 个公众号` }
+    pagination.value.current = 1
+    fetchArticlesByFolder(item)
+  } else {
+    // 点击公众号或系统项
+    activeMpId.value = item.id
+    activeFolderId.value = null
+    activeFeed.value = mpList.value.find(i => i.id === activeMpId.value)
+    pagination.value.current = 1
+    fetchArticles()
+  }
+}
+
+// 获取文件夹内文章
+const fetchArticlesByFolder = async (folder: any) => {
+  if (!folder || !folder.id) {
+    articles.value = []
+    pagination.value.total = 0
+    return
+  }
+  
+  loading.value = true
+  try {
+    // 获取文件夹内的公众号列表
+    const res = await getFolderFeeds(folder.id)
+    console.log('getFolderFeeds 返回:', res)
+    
+    // 根据 http 拦截器，res 应该是 {feeds: [...], pagination: {...}}
+    let feedsInFolder = res?.feeds || []
+    
+    if (feedsInFolder.length === 0) {
+      articles.value = []
+      pagination.value.total = 0
+      Message.info(`"${folder.name}" 文件夹暂无公众号`)
+      return
+    }
+    
+    // 2. 获取所有公众号的文章
+    const allArticles: any[] = []
+    const mpIds = feedsInFolder.map((f: any) => f.id)
+    
+    // 并发请求所有公众号的文章
+    const promises = mpIds.map((mpId: string) =>
+      getArticles({
+        page: 0,
+        pageSize: 100,
+        mp_id: mpId,
+        only_favorite: onlyFavorite.value
+      }).catch(e => ({ list: [], total: 0 }))
+    )
+    
+    const results = await Promise.all(promises)
+    
+    results.forEach((result: any) => {
+      // getArticles 返回的格式：{list: [...], total: ...}
+      let articleList = result?.list || []
+      if (articleList.length > 0) {
+        allArticles.push(...articleList.map((item: any) => ({
+          ...item,
+          publish_time: item.publish_time || item.create_time || '-',
+          url: item.url || "https://mp.weixin.qq.com/s/" + item.id,
+          is_favorite: item.is_favorite === 1 ? 1 : 0
+        })))
+      }
+    })
+    
+    // 3. 按发布时间排序
+    allArticles.sort((a, b) => (b.publish_time || 0) - (a.publish_time || 0))
+    
+    // 4. 前端分页
+    const start = (pagination.value.current - 1) * pagination.value.pageSize
+    const end = start + pagination.value.pageSize
+    articles.value = allArticles.slice(start, end)
+    pagination.value.total = allArticles.length
+    
+  } catch (error) {
+    console.error('获取文件夹文章失败:', error)
+    Message.error('获取文章失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+
+const pagination = ref({
+  current: 1,
+  pageSize: 10,
+  total: 0,
+  showTotal: true,
+  showJumper: true,
+  showPageSize: true,
+  pageSizeOptions: [10, 20, 50, 100]
+})
+
+const statusTextMap = {
+  published: '已发布',
+  draft: '草稿',
+  deleted: '已删除'
+}
+
+const statusColorMap = {
+  published: 'green',
+  draft: 'orange',
+  deleted: 'red'
+}
+
+// 原创状态映射
+const copyrightTextMap: Record<number, string> = {
+  0: '否',
+  1: '是',
+  11: '是',
+  12: '是',
+  13: '是',
+  14: '是'
+}
+
+const copyrightColorMap: Record<number, string> = {
+  0: 'gray',
+  1: 'green',
+  11: 'purple',
+  12: 'orange',
+  13: 'red',
+  14: 'cyan'
+}
+
+// 展示类型映射
+const itemShowTypeTextMap: Record<number, string> = {
+  0: '图文',
+  1: '图片',
+  2: '音频',
+  3: '视频',
+  10: '纯文字',
+  11: '文字+图片'
+}
+
+const itemShowTypeColorMap: Record<number, string> = {
+  0: 'green',
+  1: 'purple',
+  2: 'orange',
+  3: 'red',
+  10: 'gray',
+  11: 'cyan'
+}
+
+// 发布类型映射
+const publishTypeTextMap: Record<number, string> = {
+  1: '发布',
+  2: '转载',
+  3: '草稿'
+}
+
+const publishTypeColorMap: Record<number, string> = {
+  1: 'green',
+  2: 'blue',
+  3: 'orange'
+}
+
+// 列配置选项
+const allColumnOptions = [
+  { key: 'is_read', label: '已阅', required: true },
+  { key: 'pic_url', label: '题图', required: false },
+  { key: 'title', label: '文章标题', required: true },
+  { key: 'mp_id', label: '公众号', required: false },
+  { key: 'has_content', label: '正文', required: false },
+  { key: 'copyright_stat', label: '原创', required: false },
+  { key: 'item_show_types', label: '类型', required: false },
+  { key: 'created_at', label: '更新时间', required: false },
+  { key: 'publish_time', label: '发布时间', required: false },
+  { key: 'actions', label: '操作', required: true }
+]
+
+// 默认显示的列
+const defaultVisibleColumns = ['is_read', 'pic_url', 'title', 'mp_id', 'created_at', 'publish_time', 'actions']
+
+// 从 localStorage 读取列配置
+const getStoredColumns = (): string[] => {
+  try {
+    const stored = localStorage.getItem('articleListVisibleColumns')
+    if (stored) {
+      return JSON.parse(stored)
+    }
+  } catch {}
+  return defaultVisibleColumns
+}
+
+const visibleColumns = ref<string[]>(getStoredColumns())
+
+// 切换列显示状态
+const toggleColumn = (key: string, checked: boolean) => {
+  const option = allColumnOptions.find(o => o.key === key)
+  if (option?.required) return
+  
+  if (checked) {
+    if (!visibleColumns.value.includes(key)) {
+      visibleColumns.value = [...visibleColumns.value, key]
+    }
+  } else {
+    visibleColumns.value = visibleColumns.value.filter(k => k !== key)
+  }
+  localStorage.setItem('articleListVisibleColumns', JSON.stringify(visibleColumns.value))
+}
+
+// 计算动态宽度 - 不再需要，标题列自适应
+// const getDynamicTitleWidth = () => { ... }
+
+const columns = computed(() => {
+  const allColumns = [
+    {
+      title: '已阅',
+      dataIndex: 'is_read',
+      width: 60,
+      render: ({ record }) => {
+        const isRead = record.is_read === 1;
+        return h('div', {
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: isRead ? '#52c41a' : 'var(--color-text-3)'
+          },
+          onClick: () => toggleReadStatus(record)
+        }, [
+          h(isRead ? IconCheck : IconClose, {
+            style: { marginRight: '2px' }
+          }),
+          h('span', {
+            style: { fontSize: '12px' }
+          }, isRead ? '' : '')
+        ]);
+      }
+    },
+    {
+      title: '题图',
+      dataIndex: 'pic_url',
+      width: 80,
+      align: 'center',
+      render: ({ record }) => {
+        if (!record.pic_url) return h('span', { style: { color: 'var(--color-text-4)' } }, '-')
+        const Popover = resolveComponent('a-popover')
+        return h(Popover, {
+          trigger: 'hover',
+          position: 'right',
+          'content-style': { padding: '4px' }
+        }, {
+          default: () => h('img', {
+            src: record.pic_url,
+            style: {
+              width: '60px',
+              height: '40px',
+              objectFit: 'cover',
+              borderRadius: '4px',
+              cursor: 'pointer'
+            },
+            onClick: () => viewArticle(record)
+          }),
+          content: () => h('img', {
+            src: record.pic_url,
+            style: {
+              maxWidth: '300px',
+              maxHeight: '200px',
+              borderRadius: '4px'
+            }
+          })
+        })
+      }
+    },
+    {
+      title: '文章标题',
+      dataIndex: 'title',
+      ellipsis: true,
+      render: ({ record }) => h('div', {}, [
+        h('a', {
+          href: issourceUrl.value ? record.url || '#' : "/views/article/" + record.id,
+          title: record.title,
+          target: '_blank',
+          style: {
+            color: 'var(--color-text-1)',
+            textDecoration: record.is_read === 1 ? 'line-through' : 'none',
+            opacity: record.is_read === 1 ? 0.7 : 1
+          }
+        }, record.title),
+        record.description ? h('div', {
+          style: {
+            fontSize: '12px',
+            color: 'var(--color-text-3)',
+            marginTop: '4px',
+            lineHeight: '1.4',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            '-webkit-line-clamp': '2',
+            '-webkit-box-orient': 'vertical'
+          }
+        }, record.description) : null
+      ])
+    },
+    {
+      title: '公众号',
+      dataIndex: 'mp_id',
+      width: 90,
+      ellipsis: true,
+      render: ({ record }) => {
+        const mp = mpList.value.find(item => item.id === record.mp_id);
+        return h('a', {
+          style: {
+            color: 'var(--color-link)',
+            cursor: 'pointer',
+            textDecoration: 'none'
+          },
+          onClick: (e: MouseEvent) => {
+            e.preventDefault()
+            handleMpClick(record.mp_id)
+          }
+        }, record.mp_name || mp?.name || record.mp_id)
+      }
+    },
+    {
+      title: '正文',
+      dataIndex: 'has_content',
+      width: 60,
+      align: 'center',
+      render: ({ record }) => {
+        const hasContent = record.has_content === 1
+        return h('a-tag', {
+          style: {
+            color: hasContent ? 'green' : 'gray',
+            fontSize: '12px'
+          },
+          size: 'small'
+        }, hasContent ? '有' : '无')
+      }
+    },
+    {
+      title: '原创',
+      dataIndex: 'copyright_stat',
+      width: 60,
+      align: 'center',
+      render: ({ record }) => {
+        const stat = record.copyright_stat ?? 0
+        return h('a-tag', {
+          color: copyrightColorMap[stat] ,
+          size: 'small'
+        }, copyrightTextMap[stat] || '未知')
+      }
+    },
+    {
+      title: '类型',
+      dataIndex: 'item_show_types',
+      width: 60,
+      align: 'center',
+      render: ({ record }) => {
+        const showType = record.item_show_types ?? 0
+        return h('a-tag', {
+          color: itemShowTypeColorMap[showType] || 'gray',
+          size: 'small'
+        }, itemShowTypeTextMap[showType] || '图文')
+      }
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'created_at',
+      width: 130,
+      render: ({ record }) => h('span',
+        { style: { color: 'var(--color-text-3)', fontSize: '12px' } },
+        formatDateTime(record.created_at)
+      )
+    },
+    {
+      title: '发布时间',
+      dataIndex: 'publish_time',
+      width: 130,
+      render: ({ record }) => h('span',
+        { style: { color: 'rgb(var(--color-text-3))', fontSize: '12px' } },
+        formatTimestamp(record.publish_time)
+      )
+    },
+    {
+      title: '操作',
+      dataIndex: 'actions',
+      width: 140,
+      align: 'center',
+      fixed: 'right',
+      slotName: 'actions'
+    }
+  ]
+
+  return allColumns.filter(col => visibleColumns.value.includes(col.dataIndex as string))
+})
+
+const handleMpPageChange = (page: number, pageSize: number) => {
+  mpPagination.value.current = page
+  mpPagination.value.pageSize = pageSize
+  fetchMpList()
+}
+
+const handleMpSearch = () => {
+  mpPagination.value.current = 1
+  fetchMpList()
+}
+
+// 监听筛选类型变化，重置分页并重新请求
+watch(mpFilterType, () => {
+  mpPagination.value.current = 1
+  fetchMpList()
+})
+const rssFormat = ref('atom')
+const activeFeed = ref({
+  id: "",
+  name: "全部",
+})
+const canManageMp = (mpId: string) => mpId !== '' && mpId !== FEATURED_MP_ID
+
+const showAddFeaturedArticleModal = () => {
+  featuredArticleUrl.value = ''
+  featuredArticleModalVisible.value = true
+}
+
+const handleAddFeaturedArticle = async () => {
+  const url = featuredArticleUrl.value.trim()
+  if (!url) {
+    Message.warning('请输入文章链接')
+    return
+  }
+  if (!url.includes('mp.weixin.qq.com/s/')) {
+    Message.warning('请输入有效的公众号文章链接')
+    return
+  }
+
+  try {
+    const res = await addFeaturedArticle({ url })
+    const taskId = res?.task_id
+    Message.success(res?.message || '已开始添加/抓取，请稍后刷新查看结果')
+    featuredArticleModalVisible.value = false
+    if (!taskId) {
+      return
+    }
+
+    for (let i = 0; i < 15; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      try {
+        const task = await getFeaturedArticleTaskStatus(taskId)
+        if (task?.status === 'success') {
+          Message.success(task?.message || '精选文章添加成功')
+          await fetchMpList()
+          handleMpClick(FEATURED_MP_ID)
+          return
+        }
+        if (task?.status === 'failed') {
+          Message.error(task?.message || '添加精选文章失败')
+          return
+        }
+      } catch (error) {
+        console.error('查询精选文章任务失败:', error)
+      }
+    }
+
+    Message.info('导入任务仍在执行，请稍后手动刷新查看结果')
+  } catch (error) {
+    Message.error(String(error || '添加精选文章失败'))
+  }
+}
+
+const handleMpClick = (mpId: string) => {
+  activeMpId.value = mpId
+  pagination.value.current = 1
+  activeFolderId.value = null  // 👈 添加这行，清空文件夹选中
+  activeFeed.value = mpList.value.find(item => item.id === activeMpId.value)
+  console.log(activeFeed.value)
+
+  fetchArticles()
+}
+
+const fetchArticles = async () => {
+  loading.value = true
+  try {
+    console.log('请求参数:', {
+      page: pagination.value.current - 1,
+      pageSize: pagination.value.pageSize,
+      search: searchText.value,
+      status: filterStatus.value,
+      mp_id: activeMpId.value,
+      only_favorite: onlyFavorite.value
+    })
+
+    const res = await getArticles({
+      page: pagination.value.current - 1,
+      pageSize: pagination.value.pageSize,
+      search: searchText.value,
+      status: filterStatus.value,
+      mp_id: activeMpId.value,
+      only_favorite: onlyFavorite.value
+    })
+
+    // 确保数据包含必要字段
+    articles.value = (res.list || []).map(item => ({
+      ...item,
+      mp_name: item.mp_name || item.account_name || '未知公众号',
+      publish_time: item.publish_time || item.create_time || '-',
+      url: item.url || "https://mp.weixin.qq.com/s/" + item.id,
+      is_favorite: item.is_favorite === 1 ? 1 : 0
+    }))
+    pagination.value.total = res.total || 0
+  } catch (error) {
+    console.error('获取文章列表错误:', error)
+    Message.error(error)
+  } finally {
+    loading.value = false
+  }
+}
+const issourceUrl = ref(false)
+
+// 从 localStorage 读取 issourceUrl 值
+const initIssourceUrl = () => {
+  const savedValue = localStorage.getItem('issourceUrl')
+  if (savedValue !== null) {
+    issourceUrl.value = savedValue === 'true'
+  }
+}
+
+// 监听 issourceUrl 变化并保存到 localStorage
+watch(issourceUrl, (newValue) => {
+  localStorage.setItem('issourceUrl', newValue.toString())
+}, { immediate: false })
+const handlePageChange = (page: number) => {
+  console.log('分页事件触发:', { page })
+  pagination.value.current = page
+  fetchArticles()
+}
+
+const handlePageSizeChange = (pageSize: number) => {
+  console.log('页面大小改变:', { pageSize })
+  pagination.value.pageSize = pageSize
+  pagination.value.current = 1 // 切换页面大小时重置到第一页
+  fetchArticles()
+}
+
+const handleSearch = () => {
+  pagination.value.current = 1
+  fetchArticles()
+}
+
+const handleFavoriteFilterChange = (value: boolean | (string | number | boolean)[]) => {
+  onlyFavorite.value = Array.isArray(value) ? value.length > 0 : Boolean(value)
+  pagination.value.current = 1
+  fetchArticles()
+}
+
+const wechatAuthQrcodeRef = ref()
+const showAuthQrcode = inject('showAuthQrcode') as () => void
+const handleAuthClick = () => {
+  showAuthQrcode()
+}
+
+const exportOPML = async () => {
+  try {
+    const response = await ExportOPML();
+    const blob = new Blob([response], { type: 'application/xml' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'rss_feed.opml';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  } catch (error) {
+    console.error('导出OPML失败:', error);
+    Message.error(error?.message || '导出OPML失败');
+  }
+};
+const exportMPS = async () => {
+  try {
+    const res = await ExportMPS();
+    const data = (res as any).data ?? res;
+    const blob = data instanceof Blob
+      ? data
+      : new Blob([data], { type: 'text/csv;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '公众号列表.csv';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  } catch (error: any) {
+    Message.error(error?.message || '导出公众号失败');
+  }
+};
+
+const importMPS = async () => {
+  try {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await ImportMPS(formData);
+      Message.info(response?.message || "导入成功");
+    };
+    input.click();
+  } catch (error) {
+    Message.error(error?.message || '导入公众号失败');
+  }
+};
+
+const openRssFeed = () => {
+  const format = ['rss', 'atom', 'json', 'md', 'txt'].includes(rssFormat.value)
+    ? rssFormat.value
+    : 'atom'
+  let search = ""
+  if (searchText.value != "") {
+    search = "/search/" + searchText.value;
+  }
+  if (!activeMpId.value) {
+    window.open(`/feed${search}/all.${format}`, '_blank')
+    return
+  }
+  const activeMp = mpList.value.find(item => item.id === activeMpId.value)
+  if (activeMp) {
+    window.open(`/feed${search}/${activeMpId.value}.${format}`, '_blank')
+  }
+}
+
+const resetScrollPosition = () => {
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  });
+}
+
+const fullLoading = ref(false)
+
+const refreshModalVisible = ref(false)
+const refreshForm = ref({
+  startPage: 0,
+  endPage: 1
+})
+const refreshRules = {
+  startPage: [{ required: true, message: '请输入开始页码' }],
+  endPage: [{ required: true, message: '请输入结束页码' }]
+}
+
+const showRefreshModal = () => {
+  refreshModalVisible.value = true
+}
+
+const handleRefresh = () => {
+  fullLoading.value = true
+  UpdateMps(activeMpId.value, {
+    start_page: refreshForm.value.startPage,
+    end_page: refreshForm.value.endPage
+  }).then(() => {
+    Message.success('刷新成功')
+    refreshModalVisible.value = false
+  }).finally(() => {
+    fullLoading.value = false
+  })
+  fetchArticles()
+}
+const clear_articles = () => {
+  fullLoading.value = true
+  ClearArticle().then((res) => {
+    Message.success(res?.message || '清理成功')
+    refreshModalVisible.value = false
+  }).finally(() => {
+    fullLoading.value = false
+  })
+  fetchArticles()
+}
+const clear_duplicate_article = () => {
+  fullLoading.value = true
+  ClearDuplicateArticle().then((res) => {
+    Message.success(res?.message || '清理成功')
+    refreshModalVisible.value = false
+  }).finally(() => {
+    fullLoading.value = false
+  })
+  fetchArticles()
+}
+
+const refresh = () => {
+  showRefreshModal()
+}
+
+const showAddModal = () => {
+  router.push('/add-subscription')
+}
+
+const handleAddSuccess = () => {
+  fetchArticles()
+}
+ const processedContent = (record: any) => {
+ return ProxyImage(record.content)
+ }
+const viewArticle = async (record: any, action_type: number = 0) => {
+  loading.value = true
+  try {
+    // console.log(record)
+    const article = await getArticleDetail(record.id,action_type)
+    currentArticle.value = {
+      id: article.id,
+      title: article.title,
+      content: processedContent(article),
+      time: formatDateTime(article.created_at),
+      url: article.url
+    }
+    articleModalVisible.value = true
+    window.location="#topreader"
+    
+    // 创建或更新 Shadow DOM
+    await nextTick()
+    createShadowHost()
+    
+    // 自动标记为已读（仅在查看当前文章时，不是上一篇/下一篇）
+    if (action_type === 0 && record.is_read !== 1) {
+      await toggleReadStatus(record)
+    }
+  } catch (error) {
+    console.error('获取文章详情错误:', error)
+    Message.error(error)
+  } finally {
+    loading.value = false
+  }
+}
+const currentArticle = ref({
+  title: '',
+  content: '',
+  time: '',
+  url: ''
+})
+const articleModalVisible = ref(false)
+const shadowContainer = ref()
+const refreshingArticleIds = ref<string[]>([])
+
+const deleteArticle = (id: number) => {
+  Modal.confirm({
+    title: '确认删除',
+    content: '确定要删除该文章吗？删除后将无法恢复。',
+    okText: '确认',
+    cancelText: '取消',
+    onOk: async () => {
+      await deleteArticleApi(id);
+      Message.success('删除成功');
+      fetchArticles();
+    },
+    onCancel: () => {
+      Message.info('已取消删除操作');
+    }
+  });
+}
+
+const pollRefreshArticleTask = async (taskId: string) => {
+  for (let i = 0; i < 15; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      const task = await getRefreshArticleTaskStatus(taskId)
+      if (task?.status === 'success') {
+        Message.success(task?.message || '文章刷新成功')
+        await fetchArticles()
+        return
+      }
+      if (task?.status === 'failed') {
+        Message.error(task?.message || '文章刷新失败')
+        return
+      }
+    } catch (error) {
+      console.error('查询文章刷新任务失败:', error)
+    }
+  }
+
+  Message.info('刷新任务仍在执行，请稍后手动刷新列表查看结果')
+}
+
+const refreshSingleArticle = async (record: any) => {
+  const articleId = String(record.id)
+  if (refreshingArticleIds.value.includes(articleId)) {
+    return
+  }
+
+  refreshingArticleIds.value = [...refreshingArticleIds.value, articleId]
+  try {
+    const res = await refreshArticleApi(record.id)
+    const taskId = res?.task_id
+    Message.success(res?.message || '已开始刷新，请稍后查看')
+    if (taskId) {
+      await pollRefreshArticleTask(taskId)
+    }
+  } catch (error) {
+    console.error('刷新文章失败:', error)
+    Message.error(String(error || '刷新文章失败'))
+  } finally {
+    refreshingArticleIds.value = refreshingArticleIds.value.filter((id) => id !== articleId)
+  }
+}
+
+const handleBatchDelete = () => {
+  Modal.confirm({
+    title: '确认批量删除',
+    content: `确定要删除选中的${selectedRowKeys.value.length}篇文章吗？删除后将无法恢复。`,
+    okText: '确认',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        await Promise.all(selectedRowKeys.value.map(id => deleteArticleApi(id)));
+        Message.success(`成功删除${selectedRowKeys.value.length}篇文章`);
+        selectedRowKeys.value = [];
+        fetchArticles();
+      } catch (error) {
+        Message.error('删除部分文章失败');
+      }
+    },
+    onCancel: () => {
+      Message.info('已取消批量删除操作');
+    }
+  });
+}
+
+const handleExportShow = async () => {
+  let mp_id=activeFeed.value?.id
+  let ids=selectedRowKeys.value
+  let mp_name=activeFeed.value?.name || activeFeed.value?.mp_name || '全部'
+  exportModal.value.show(mp_id,ids,mp_name)
+}
+
+const handleAISummary = () => {
+  const ids = selectedRowKeys.value
+  if (!ids || ids.length === 0) {
+    Message.warning('请先勾选要摘要的文章')
+    return
+  }
+  aiSummaryModal.value.show(ids.map(String))
+}
+
+const handleAIReport = () => {
+  const mpId = activeFeed.value?.id || ''
+  const mpName = activeFeed.value?.name || activeFeed.value?.mp_name || '全部'
+  router.push({ path: '/ai-report', query: { mpId, mpName } })
+}
+
+const handleAIQA = () => {
+  const mpId = activeFeed.value?.id || ''
+  const mpName = activeFeed.value?.name || activeFeed.value?.mp_name || '全部'
+  router.push({ path: '/ai-qa', query: { mpId, mpName } })
+}
+
+
+onMounted(async () => {
+  console.log('组件挂载，开始获取数据')
+  await loadPermissions()
+  initIssourceUrl()
+  
+  // 从后端加载文件夹，再加载公众号列表
+  await refreshMpListWithFolders()
+  
+  console.log('✅ ArticleListDesktop.vue 已加载，分组功能已启用')
+  fetchArticles()
+})
+
+
+const fetchMpList = async () => {
+  mpLoading.value = true
+  try {
+    // 根据筛选类型确定 status 参数
+    let statusParam: number | undefined = undefined
+    if (mpFilterType.value === 'active') {
+      statusParam = 1
+    } else if (mpFilterType.value === 'disabled') {
+      statusParam = 0
+    }
+    // 'all' 时不传 status 参数
+
+    // 选择"全部"时，请求少2条（因为会添加"全部"选项，后端也会添加"精选文章"）
+    const adjustedPageSize = mpFilterType.value === 'all' && !mpSearchText.value
+      ? mpPagination.value.pageSize - 2
+      : mpPagination.value.pageSize
+
+    const res = await getSubscriptions({
+      page: mpPagination.value.current - 1,
+      pageSize: adjustedPageSize,
+      kw: mpSearchText.value,
+      status: statusParam
+    })
+
+    mpList.value = res.list.map(item => ({
+      id: item.id || item.mp_id,
+      name: item.name || item.mp_name,
+      avatar: item.avatar || item.mp_cover || '',
+      mp_intro: item.mp_intro || item.mp_intro || '',
+      article_count: item.article_count || 0,
+      status: item.status ?? 1
+    }))
+    // 只在筛选全部且无搜索时添加'全部'选项
+    if (mpFilterType.value === 'all' && !mpSearchText.value) {
+      mpList.value.unshift({
+        id: '',
+        name: '全部',
+        avatar: '/static/logo.svg',
+        mp_intro: '显示所有公众号文章',
+        article_count: res.total || 0,
+        status: 1
+      });
+    }
+    mpPagination.value.total = res.total || 0
+  } catch (error) {
+    console.error('获取公众号列表错误:', error)
+  } finally {
+    mpLoading.value = false
+  }
+}
+
+const copyMpId = async (mpId: string) => {
+  try {
+    await navigator.clipboard.writeText(mpId);
+    Message.success('MP ID 已复制到剪贴板');
+  } catch (error) {
+    // 如果 clipboard API 不可用，使用传统方法
+    const textArea = document.createElement('textarea');
+    textArea.value = mpId;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      Message.success('MP ID 已复制到剪贴板');
+    } catch (err) {
+      Message.error('复制失败，请手动复制');
+      console.error('复制失败:', err);
+    }
+    document.body.removeChild(textArea);
+  }
+}
+
+const deleteMp = async (mpId: string) => {
+  if (!canManageMp(mpId)) {
+    return
+  }
+  try {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除该订阅号吗？删除后将无法恢复。',
+      okText: '确认',
+      cancelText: '取消',
+      onOk: async () => {
+        await deleteMpApi(mpId);
+        Message.success('订阅号删除成功');
+        fetchMpList();
+      },
+      onCancel: () => {
+        Message.info('已取消删除操作');
+      }
+    });
+  } catch (error) {
+    console.error('删除订阅号失败:', error);
+    Message.error('删除订阅号失败，请稍后重试');
+  }
+}
+
+const toggleMpStatus = async (mpId: string, newStatus: number) => {
+  if (!canManageMp(mpId)) {
+    return
+  }
+  try {
+    await toggleMpStatusApi(mpId, newStatus);
+    Message.success(newStatus === 0 ? '公众号已禁用' : '公众号已启用');
+    // 更新本地数据
+    const index = mpList.value.findIndex(item => item.id === mpId);
+    if (index !== -1) {
+      mpList.value[index].status = newStatus;
+    }
+  } catch (error) {
+    console.error('更新公众号状态失败:', error);
+    Message.error('更新公众号状态失败');
+  }
+}
+
+const importArticles = () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const data = JSON.parse(content);
+      // 这里应该调用API导入数据
+      Message.success(`成功导入${data.length}篇文章`);
+    } catch (error) {
+      console.error('导入文章失败:', error);
+      Message.error('导入失败，请检查文件格式');
+    }
+  };
+  input.click();
+};
+
+const exportArticles = () => {
+  if (!articles.value.length) {
+    Message.warning('没有文章可导出');
+    return;
+  }
+
+  const data = JSON.stringify(articles.value, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `articles_${activeMpId.value || 'all'}_${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  Message.success('导出成功');
+};
+
+// 创建 Shadow DOM 隔离容器
+const createShadowHost = () => {
+  if (!shadowContainer.value) return;
+  
+  // 清空容器
+  shadowContainer.value.innerHTML = '';
+  
+  // 创建 Shadow Host
+  const shadowHost = document.createElement('div');
+  shadowHost.style.width = '100%';
+  shadowHost.style.height = 'auto';
+  
+  // 创建 Shadow Root
+  const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
+  
+  // 添加基础样式到 Shadow DOM
+  const style = document.createElement('style');
+  style.textContent = `
+    :host {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    img {
+      max-width: 100% !important;
+      height: auto !important;
+      display: block;
+      margin: 0 auto;
+    }
+    iframe {
+      width: 100% !important;
+      border: none !important;
+    }
+    p {
+      margin: 1em 0;
+      line-height: 1.6;
+    }
+    * {
+      box-sizing: border-box;
+    }
+  `;
+  shadowRoot.appendChild(style);
+  
+  // 创建内容容器
+  const contentDiv = document.createElement('div');
+  contentDiv.innerHTML = currentArticle.value.content || '';
+  shadowRoot.appendChild(contentDiv);
+  
+  // 将 Shadow Host 添加到容器中
+  shadowContainer.value.appendChild(shadowHost);
+};
+
+// 切换文章阅读状态
+const toggleReadStatus = async (record: any) => {
+  try {
+    const newReadStatus = record.is_read === 1 ? false : true;
+    await toggleArticleReadStatus(record.id, newReadStatus);
+    
+    // 更新本地数据
+    const index = articles.value.findIndex(item => item.id === record.id);
+    if (index !== -1) {
+      articles.value[index].is_read = newReadStatus ? 1 : 0;
+    }
+    
+    Message.success(`文章已标记为${newReadStatus ? '已读' : '未读'}`);
+  } catch (error) {
+    console.error('更新阅读状态失败:', error);
+    Message.error('更新阅读状态失败');
+  }
+};
+
+const toggleFavoriteStatus = async (record: any) => {
+  try {
+    const newFavoriteStatus = record.is_favorite === 1 ? false : true
+    await toggleArticleFavoriteStatus(record.id, newFavoriteStatus)
+
+    const index = articles.value.findIndex(item => item.id === record.id)
+    if (index !== -1) {
+      articles.value[index].is_favorite = newFavoriteStatus ? 1 : 0
+    }
+
+    Message.success(newFavoriteStatus ? '收藏成功' : '已取消收藏')
+
+    if (onlyFavorite.value && !newFavoriteStatus) {
+      pagination.value.current = 1
+      fetchArticles()
+    }
+  } catch (error) {
+    console.error('更新收藏状态失败:', error)
+    Message.error('更新收藏状态失败')
+  }
+}
+</script>
+
+<style scoped>
+.article-list {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.article-list :deep(.arco-layout) {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.article-list :deep(.arco-layout-sider) {
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.article-list :deep(.arco-layout-content) {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+.a-list-item {
+  cursor: pointer;
+  padding: 12px 16px;
+  transition: all 0.2s;
+  margin-bottom: 0 !important;
+}
+
+.a-list-item:hover {
+  background-color: var(--color-fill-2);
+}
+
+.active-mp {
+  background-color: var(--color-primary-light-1);
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  max-width: calc(100% - 140px);
+}
+
+.favorite-filter {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.featured-url-example {
+  margin-top: 8px;
+  color: var(--color-text-3);
+  font-size: 12px;
+}
+
+.featured-url-input-wrapper {
+  width: 100%;
+}
+
+:deep(.arco-table-th-item) {
+  justify-content: center;
+}
+
+:deep(.arco-table) {
+  width: 100% !important;
+}
+
+:deep(.arco-table-container) {
+  width: 100% !important;
+  overflow-x: auto;
+}
+
+:deep(.arco-table-content) {
+  overflow-x: auto;
+}
+
+:deep(.arco-table-element) {
+  width: 100% !important;
+  table-layout: auto !important;
+}
+
+:deep(.arco-card) {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 确保内部表格容器正确 */
+:deep(.arco-card-body) {
+  width: 100%;
+  overflow: hidden;
+}
+
+.arco-drawer-body img {
+  max-width: 100vw !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+}
+
+.arco-drawer-body {
+  z-index: 9999 !important;
+  /* 确保抽屉在其他内容之上 */
+}
+
+:deep(.arco-btn .arco-icon-down) {
+  transition: transform 0.2s ease-in-out;
+}
+
+:deep(.arco-dropdown-open .arco-icon-down) {
+  transform: rotate(180deg);
+}
+
+/* 题图预览 tooltip 样式 */
+:deep(.image-preview-tooltip) {
+  padding: 4px !important;
+  background: transparent !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+:deep(.arco-tooltip-content) {
+  background: transparent !important;
+}
+
+</style>
+<style>
+#article-model img {
+  max-width: 100% !important;
+  border-width:0px !important;
+}
+iframe{
+  width:100% !important;
+  border:0 !important;
+}
+.active-folder {
+  background-color: var(--color-primary-light-1);
+}
+/* 统一的列表项样式 */
+.list-item-folder,
+.list-item-mp {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.list-item-folder:hover,
+.list-item-mp:hover {
+  background-color: var(--color-fill-2);
+}
+
+/* 选中的样式 */
+.active-item {
+  background-color: var(--color-primary-light-1);
+}
+</style>
