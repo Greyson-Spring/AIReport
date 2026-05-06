@@ -30,13 +30,13 @@
               <a-dropdown>
                 <a-button type="outline">
                   <template #icon><icon-folder /></template>
-                  文件夹
+                  分类
                   <icon-down />
                 </a-button>
                 <template #content>
                   <a-doption @click="showCreateFolderModal">
                     <template #icon><icon-plus /></template>
-                    新建文件夹
+                    新建分类
                   </a-doption>
                 </template>
               </a-dropdown>
