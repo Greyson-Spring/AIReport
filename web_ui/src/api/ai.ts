@@ -29,6 +29,8 @@ export interface AIReportParams {
   model?: string
   mp_id?: string
   keyword?: string
+  source?: string      // 新增：all, favorite, folder
+  folder_id?: number   // 新增：文件夹ID
 }
 
 export interface AIReportPreviewResult {

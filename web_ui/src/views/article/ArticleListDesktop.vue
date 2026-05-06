@@ -63,35 +63,6 @@
                 <a-radio value="disabled" style="flex: 1; text-align: center;">停用</a-radio>
               </a-radio-group>
             </div>
-            <!-- 公众号列表通过mpList循环渲染 -->
-            <!-- <a-list :data="mpList" :loading="mpLoading" bordered>
-              <template #item="{ item, index }">
-                <a-list-item @click="handleItemClick(item)" :class="{ 'active-mp': activeMpId === item.id }"
-                  style="padding: 9px 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between;">
-                  <div style="display: flex; align-items: center;">
-                    <img :src="Avatar(item.avatar)" width="40" style="float:left;margin-right:1rem;" />
-                    <a-typography-text strong style="line-height:32px;" :style="{ opacity: item.status === 0 ? 0.5 : 1 }">
-                      {{ item.name || item.mp_name }}
-                    </a-typography-text>
-                    <a-button v-if="activeMpId === item.id && canManageMp(item.id)" size="mini" type="text" status="danger"
-                      @click="$event.stopPropagation(); deleteMp(item.id)">
-                      <template #icon><icon-delete /></template>
-                    </a-button>
-                    <a-button v-if="activeMpId === item.id && canManageMp(item.id)" size="mini" type="text"
-                      @click="$event.stopPropagation(); copyMpId(item.id)">
-                      <template #icon><icon-copy /></template>
-                    </a-button>
-                    <a-button v-if="activeMpId === item.id && canManageMp(item.id)" size="mini" type="text"
-                      @click="$event.stopPropagation(); toggleMpStatus(item.id, item.status === 1 ? 0 : 1)">
-                      <template #icon>
-                        <icon-stop v-if="item.status === 1" />
-                        <icon-play-arrow v-else />
-                      </template>
-                    </a-button>
-                  </div>
-                </a-list-item>
-              </template>
-            </a-list> -->
             <!-- 统一列表循环 -->
             <div style="flex: 1; overflow-y: auto; padding: 8px 0;">
               
@@ -1801,11 +1772,59 @@ const handleAISummary = () => {
   }
   aiSummaryModal.value.show(ids.map(String))
 }
-
+// ai报告传入参数和跳转
 const handleAIReport = () => {
-  const mpId = activeFeed.value?.id || ''
-  const mpName = activeFeed.value?.name || activeFeed.value?.mp_name || '全部'
-  router.push({ path: '/ai-report', query: { mpId, mpName } })
+  // 判断当前选中的是什么类型
+  const activeItemType = activeItem.value?.type
+  const activeItemId = activeItem.value?.id
+  
+  let source = 'all'
+  let mpId = ''
+  let mpName = ''
+  let folderId = ''
+  let folderName = ''
+  
+  if (activeItemType === 'system') {
+    // 系统项：可能是「全部」或「精选文章」
+    if (activeItemId === '') {
+      // 全部
+      source = 'all'
+      mpId = ''
+      mpName = '全部'
+    } else if (activeItemId === 'MP_WXS_FEATURED_ARTICLES') {
+      // 精选文章（全站范围）
+      source = 'favorite'
+      mpId = ''
+      mpName = '精选文章'
+    }
+  } 
+  else if (activeItemType === 'folder') {
+    // 文件夹：传文件夹ID
+    source = 'folder'
+    folderId = String(activeItemId)
+    // 获取文件夹名称
+    const folder = folderTree.value.find(f => f.id === activeItemId)
+    folderName = folder?.name || '文件夹'
+    mpName = folderName
+  } 
+  else if (activeItemType === 'mp') {
+    // 单个公众号
+    source = 'all'
+    mpId = String(activeItemId)
+    mpName = activeFeed.value?.name || activeFeed.value?.mp_name || ''
+  }
+  
+  // 跳转到AI报告页面
+  router.push({ 
+    path: '/ai-report', 
+    query: { 
+      mpId,
+      mpName,
+      source,
+      folderId,
+      folderName
+    } 
+  })
 }
 
 const handleAIQA = () => {

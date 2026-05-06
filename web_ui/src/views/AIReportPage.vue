@@ -19,15 +19,15 @@
         </a-alert>
       </div>
       <div v-else class="panel-section">
+        <div class="section-label">模型配置</div>
         <a-tag color="green" size="small">{{ config.model || 'gpt-3.5-turbo' }}</a-tag>
       </div>
 
-      <!-- 当前公众号 -->
+      <!-- 数据来源显示（新增） -->
       <div class="panel-section">
-        <div class="section-label">当前公众号</div>
-        <a-tag color="blue">{{ mpName || '全部' }}</a-tag>
+        <div class="section-label">数据来源</div>
+        <a-tag color="blue">{{ sourceLabel }}</a-tag>
       </div>
-
       <!-- 日期范围 -->
       <div class="panel-section">
         <div class="section-label">文章日期范围</div>
@@ -189,6 +189,10 @@ import { getLLMConfig } from '@/api/llmConfig'
 
 const route = useRoute()
 const router = useRouter()
+// 数据来源相关变量
+const source = ref('all')        // all, favorite, folder
+const folderId = ref('')         // 文件夹ID
+const folderName = ref('')       // 文件夹名称
 
 const editorRef = ref<HTMLDivElement | null>(null)
 const previewLoading = ref(false)
@@ -224,7 +228,15 @@ const prompt = ref('')
 const config = ref({ api_url: '', api_key: '', model: 'gpt-3.5-turbo' })
 const configSaved = computed(() => !!config.value.api_url && !!config.value.api_key)
 const hasContent = ref(false)
-
+// 数据来源显示文本
+const sourceLabel = computed(() => {
+  if (source.value === 'favorite') return '精选文章'
+  if (source.value === 'folder') return `${folderName.value}`
+  // 单个公众号：显示公众号名称
+  if (mpId.value) return `公众号：${mpName.value}`
+  // 默认显示全站
+  return '全部文章'
+})
 // ---- 编辑器命令 ----
 const execCmd = (command: string, value?: string) => {
   editorRef.value?.focus()
@@ -316,16 +328,28 @@ const getRequestParams = () => {
     Message.warning('请先前往「大模型配置」页面配置 API Key')
     return null
   }
-  return {
+  
+  const params: any = {
     start_date: dateRange.value[0],
     end_date: dateRange.value[1],
     prompt: prompt.value || undefined,
     api_url: config.value.api_url,
     api_key: config.value.api_key,
     model: config.value.model || undefined,
-    mp_id: mpId.value || undefined,
-    keyword: keyword.value || undefined
+    keyword: keyword.value || undefined,
+    source: source.value  // 新增：传递数据来源
   }
+  
+  // 根据来源类型传递不同参数
+  if (source.value === 'folder') {
+    // 文件夹：传 folder_id
+    params.folder_id = folderId.value
+  } else {
+    // 全部或精选文章：传 mp_id（精选文章时 mp_id 可为空，表示全站）
+    params.mp_id = mpId.value || undefined
+  }
+  
+  return params
 }
 
 // ---- 生成报告 ----
@@ -399,6 +423,17 @@ const copyContent = async () => {
 onMounted(async () => {
   mpId.value = (route.query.mpId as string) || ''
   mpName.value = (route.query.mpName as string) || '全部'
+  // 获取数据来源参数
+  source.value = (route.query.source as string) || 'all'
+  
+  if (source.value === 'folder') {
+    folderId.value = (route.query.folderId as string) || ''
+    folderName.value = (route.query.folderName as string) || (route.query.mpName as string) || '文件夹'
+  }
+  // 如果没有传 mpName 但有 mpId，尝试从 mpId 生成一个默认名称
+  if (mpId.value && !mpName.value) {
+    mpName.value = `公众号(${mpId.value.substring(0, 8)})`
+  }
   await loadConfig()
 
   // 初始占位内容
