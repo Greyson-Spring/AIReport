@@ -130,6 +130,7 @@ def _run_add_featured_article_task(task_id: str, url: str):
             existing.publish_time = article_data["publish_time"]
             existing.url = article_data["url"]
             existing.pic_url = article_data["pic_url"]
+            existing.is_favorite = 1   # 添加这一行
             existing.status = DATA_STATUS.ACTIVE
             existing.updated_at = int(now.timestamp())
             existing.updated_at_millis = int(now.timestamp() * 1000)
@@ -149,7 +150,7 @@ def _run_add_featured_article_task(task_id: str, url: str):
                 updated_at=int(now.timestamp()),
                 updated_at_millis=int(now.timestamp() * 1000),
                 is_read=0,
-                is_favorite=0
+                is_favorite=1  #  之前是0
             ))
             created = True
 
