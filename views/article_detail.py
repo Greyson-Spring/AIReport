@@ -32,7 +32,7 @@ async def article_detail_view(
         # 查询文章信息
         article_query = session.query(Article, Feed).join(
             Feed, Article.mp_id == Feed.id
-        ).filter(Article.id == article_id, Article.status == 1, Feed.status == 1).first()
+        ).filter(Article.id == article_id, Article.status == 1).first()
         
         if not article_query:
             raise HTTPException(status_code=404, detail="文章不存在")
