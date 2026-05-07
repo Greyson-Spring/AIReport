@@ -1809,9 +1809,17 @@ const handleAIReport = () => {
   } 
   else if (activeItemType === 'mp') {
     // 单个公众号
-    source = 'all'
+    source = 'mp'
     mpId = String(activeItemId)
-    mpName = activeFeed.value?.name || activeFeed.value?.mp_name || ''
+    // 获取公众号名称
+    let mp = unassignedMpList.value.find(m => String(m.id) === String(activeItemId))
+    if (!mp) {
+      for (const folder of folderTree.value) {
+        mp = folder.feeds.find(f => String(f.id) === String(activeItemId))
+        if (mp) break
+      }
+    }
+    mpName = mp?.name || activeFeed.value?.name || ''
   }
   
   // 跳转到AI报告页面
