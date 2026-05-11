@@ -73,11 +73,11 @@
             <template #icon><icon-eye /></template>
             生成报告
           </a-button>
-          <a-button type="primary" status="success" :loading="downloadLoading" @click="handleDownload" long :disabled="!hasContent">
+          <a-button type="primary" status="success" :loading="downloadLoading" @click="handleDownload" long :disabled="!hasContent || !currentHistoryId">
             <template #icon><icon-download /></template>
             导出 Word
           </a-button>
-          <a-button @click="copyContent" long :disabled="!hasContent">
+          <a-button @click="copyContent" long :disabled="!hasContent || !currentHistoryId">
             <template #icon><icon-copy /></template>
             复制内容
           </a-button>
@@ -278,7 +278,7 @@ const dateRange = ref<string[]>(getDefaultDateRange())
 const prompt = ref('')
 const config = ref({ api_url: '', api_key: '', model: 'gpt-3.5-turbo' })
 const configSaved = computed(() => !!config.value.api_url && !!config.value.api_key)
-const hasContent = ref(false)
+const hasContent = ref(false)  // 编辑器是否有内容（用于控制导出和复制按钮的可用状态）
 // 数据来源显示文本
 const sourceLabel = computed(() => {
   if (source.value === 'favorite') return '精选文章'
@@ -301,7 +301,7 @@ const changeFontSize = (val: string) => {
 const changeHeading = (val: string) => {
   execCmd('formatBlock', val === 'p' ? 'p' : val)
 }
-
+// 监听编辑器输入，更新 hasContent 状态（导出和复制按钮的禁用状态不能只靠hasContent来判断，需要结合其他条件）
 const onEditorInput = () => {
   hasContent.value = !!editorRef.value?.innerText?.trim()
 }
@@ -487,13 +487,13 @@ const handlePreview = async () => {
 } */
 const handleDownload = async () => {
   // 如果正在查看历史记录，直接导出保存的报告
-  if (isViewingHistory.value && currentHistoryId.value) {
-    await exportSavedReport()
+  if (!currentHistoryId.value) {
+    Message.warning('请先生成报告或选择一条历史记录')
     return
   }
+  // 直接导出当前历史记录对应的报告
+  await exportSavedReport()
   
-  // 否则，走原来的逻辑：重新调用 AI 生成
-  await generateAndDownload()
 }
 
 // 导出保存的历史报告
