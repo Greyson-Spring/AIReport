@@ -1829,8 +1829,8 @@ const handleAIReport = () => {
       mpId,
       mpName,
       source,
-      folderId,
-      folderName
+      folder_id: folderId,      // 改成 folder_id
+      folder_name: folderName   // 改成 folder_name
     } 
   })
 }

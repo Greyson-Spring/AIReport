@@ -92,6 +92,49 @@
           <a-tag size="small" color="arcoblue">{{ reportMeta.date_range }}</a-tag>
         </a-space>
       </div>
+      <!-- 历史记录区域 -->
+      <div class="panel-section history-panel-section">
+        <div class="section-label" style="display: flex; justify-content: space-between; align-items: center;">
+          <span>📋 历史报告</span>
+          <a-button size="mini" type="text" @click="fetchHistoryList" :loading="historyLoading">
+            <template #icon><icon-refresh /></template>
+          </a-button>
+        </div>
+        
+        <div v-if="historyLoading" class="history-loading">
+          <a-spin size="small" /> 加载中...
+        </div>
+        
+        <div v-else-if="historyList.length === 0" class="history-empty">
+          暂无历史报告
+        </div>
+        
+        <div v-else class="history-list">
+          <div 
+            v-for="item in historyList" 
+            :key="item.id"
+            class="history-item"
+            :class="{ 'history-item-active': activeHistoryId === item.id }"
+          >
+            <!-- 可点击的内容区域（加载报告） -->
+            <div class="history-item-content" @click="loadHistoryReport(item)">
+              <div class="history-item-title">{{ item.title }}</div>
+              <div class="history-item-time">{{ item.created_at }}</div>
+            </div>
+            <!-- 删除按钮（默认隐藏，hover 时显示） -->
+            <a-button 
+              class="history-item-delete"
+              size="mini" 
+              type="text" 
+              status="danger"
+              @click.stop="confirmDeleteHistory(item)"
+            >
+              <template #icon><icon-delete /></template>
+            </a-button>
+          </div>
+
+        </div>
+      </div>
     </div>
 
     <!-- 右侧编辑区域 -->
@@ -186,6 +229,8 @@ import {
 } from '@arco-design/web-vue/es/icon'
 import { aiReportPreview, aiReportDownload } from '@/api/ai'
 import { getLLMConfig } from '@/api/llmConfig'
+import { deleteHistoryReport } from '@/api/ai'
+import { Modal } from '@arco-design/web-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -203,6 +248,12 @@ const keyword = ref('')
 const currentFontSize = ref('3')
 const currentHeading = ref('p')
 const reportMeta = ref<{ model: string; article_count: number; date_range: string } | null>(null)
+// 历史记录相关 
+const historyList = ref([])           // 历史记录列表
+const historyLoading = ref(false)     // 加载中状态
+const activeHistoryId = ref(null)     // 当前选中的历史记录ID
+const isViewingHistory = ref(false)   // 是否正在查看历史记录
+const currentHistoryId = ref(null)    // 当前查看的历史记录ID
 
 const fontSizes = [
   { label: '12px', value: '1' },
@@ -231,7 +282,7 @@ const hasContent = ref(false)
 // 数据来源显示文本
 const sourceLabel = computed(() => {
   if (source.value === 'favorite') return '精选文章'
-  if (source.value === 'folder') return `${folderName.value}`
+  if (source.value === 'folder') return folderName.value
   // 单个公众号：显示公众号名称
   if (mpId.value) return `公众号：${mpName.value}`
   // 默认显示全站
@@ -344,6 +395,7 @@ const getRequestParams = () => {
   if (source.value === 'folder') {
     // 文件夹：传 folder_id
     params.folder_id = folderId.value
+    params.folder_name = folderName.value
   } else {
     // 全部或精选文章：传 mp_id（精选文章时 mp_id 可为空，表示全站）
     params.mp_id = mpId.value || undefined
@@ -359,24 +411,51 @@ const handlePreview = async () => {
 
   previewLoading.value = true
   reportMeta.value = null
+  
   try {
     const res = await aiReportPreview(params)
+    // 保存新生成的报告 ID，用于后续导出
+    if (res.history_id) {
+      currentHistoryId.value = res.history_id
+      isViewingHistory.value = true  // 标记为"正在查看刚生成的报告"
+    }
+    // 保存报告元信息
     reportMeta.value = {
       model: res.model,
       article_count: res.article_count,
       date_range: res.date_range
     }
-    const htmlContent = markdownToHtml(res.report)
+    
+    // 直接使用 res.report（已经是完整的 Markdown）
+    const fullMarkdown = res.report
+    
+    // 保存提示词到本地存储
     if (prompt.value) {
       localStorage.setItem('ai_report_prompt', prompt.value)
     }
-    // 先关闭 loading 让 DOM 重新渲染编辑器，再写入内容
+    
+    // 关闭 loading，重新渲染编辑器
     previewLoading.value = false
     await nextTick()
+    
+    // 显示到编辑器
     if (editorRef.value) {
+      const htmlContent = markdownToHtml(fullMarkdown)
       editorRef.value.innerHTML = htmlContent
       hasContent.value = true
     }
+    
+    // ========== ⭐刷新历史记录列表 ==========
+    // 生成新报告后，后端已经自动保存，需要刷新左侧列表
+    await fetchHistoryList()
+    
+    // 可选：自动选中最新生成的记录（第一条）
+    if (historyList.value.length > 0) {
+      activeHistoryId.value = historyList.value[0]?.id
+    }
+    
+    Message.success('报告生成成功，已自动保存到历史记录')
+    
   } catch (error) {
     Message.error(String(error || 'AI报告生成失败'))
     previewLoading.value = false
@@ -384,7 +463,70 @@ const handlePreview = async () => {
 }
 
 // ---- 导出 Word ----
+/* const handleDownload = async () => {
+  const params = getRequestParams()
+  if (!params) return
+
+  downloadLoading.value = true
+  try {
+    const blob = await aiReportDownload(params)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `AI_Report_${params.start_date}_${params.end_date}.docx`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+    Message.success('Word 文档已下载')
+  } catch (error) {
+    Message.error(String(error || '导出Word失败'))
+  } finally {
+    downloadLoading.value = false
+  }
+} */
 const handleDownload = async () => {
+  // 如果正在查看历史记录，直接导出保存的报告
+  if (isViewingHistory.value && currentHistoryId.value) {
+    await exportSavedReport()
+    return
+  }
+  
+  // 否则，走原来的逻辑：重新调用 AI 生成
+  await generateAndDownload()
+}
+
+// 导出保存的历史报告
+const exportSavedReport = async () => {
+  downloadLoading.value = true
+  try {
+    // 动态导入 exportHistoryReport 函数
+    const { exportHistoryReport } = await import('@/api/ai')
+    
+    const blob = await exportHistoryReport(currentHistoryId.value)
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    // 从响应头获取文件名，或使用默认名称
+    const contentDisposition = blob.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ? 'document.docx'
+      : `history_report_${currentHistoryId.value}.docx`
+    a.download = contentDisposition
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+    Message.success('历史报告导出成功')
+  } catch (error) {
+    console.error('导出历史报告失败:', error)
+    Message.error(String(error || '导出失败'))
+  } finally {
+    downloadLoading.value = false
+  }
+}
+
+// 重新生成并下载（原有逻辑）
+const generateAndDownload = async () => {
   const params = getRequestParams()
   if (!params) return
 
@@ -406,7 +548,6 @@ const handleDownload = async () => {
     downloadLoading.value = false
   }
 }
-
 // ---- 复制 ----
 const copyContent = async () => {
   if (!editorRef.value) return
@@ -418,7 +559,127 @@ const copyContent = async () => {
     Message.error('复制失败')
   }
 }
-
+// ========== 获取历史记录列表 ==========
+// 获取历史记录列表
+const fetchHistoryList = async () => {
+  historyLoading.value = true
+  try {
+    const token = localStorage.getItem('token')
+    const response = await fetch('/api/v1/wx/ai/history/list', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    
+    const result = await response.json()
+    if (result.code === 0 && result.data) {
+      historyList.value = result.data.list || []
+      console.log('历史记录加载成功:', historyList.value.length, '条')
+    } else {
+      console.error('获取历史记录失败:', result)
+    }
+  } catch (error) {
+    console.error('获取历史记录出错:', error)
+  } finally {
+    historyLoading.value = false
+  }
+}
+// 加载历史报告
+const loadHistoryReport = async (item) => {
+  console.log('folderName 变量:', folderName)  // ⭐ 添加这行
+  console.log('folderName.value:', folderName.value)
+  console.log('加载历史报告:', item.title)
+  
+  // 设置历史查看状态
+  isViewingHistory.value = true
+  currentHistoryId.value = item.id
+  activeHistoryId.value = item.id
+  
+  // 1. 回填左侧配置（方便用户基于此修改后重新生成）
+  dateRange.value = [item.start_date, item.end_date]
+  keyword.value = item.keyword || ''
+  prompt.value = item.prompt || ''
+  
+  // 2. 根据来源类型设置显示
+  if (item.source === 'mp') {
+    mpId.value = item.mp_id || ''
+    mpName.value = item.mp_name || item.mp_id || ''
+    source.value = 'mp'
+  } else if (item.source === 'folder') {
+    folderId.value = String(item.folder_id || '')
+    folderName.value = item.folder_name || '文件夹'
+    source.value = 'folder'
+  } else if (item.source === 'favorite') {
+    source.value = 'favorite'
+    mpId.value = ''
+    mpName.value = '精选文章'
+  } else {
+    source.value = 'all'
+    mpId.value = ''
+    mpName.value = '全部'
+  }
+  
+  // 3. 将报告内容显示到编辑器
+ // 简化：直接使用 item.report_content（已经是完整的 Markdown）⭐⭐⭐
+  if (editorRef.value) {
+    const htmlContent = markdownToHtml(item.report_content)
+    editorRef.value.innerHTML = htmlContent
+    hasContent.value = true
+  }
+  
+  Message.success(`已加载报告：${item.title}`)
+}
+/**
+ * 确认删除历史记录
+ * 原理：
+ * 1. 弹出确认对话框
+ * 2. 用户确认后调用删除 API
+ * 3. 删除成功后刷新列表
+ * 4. 如果删除的是当前正在查看的记录，清空编辑器
+ */
+const confirmDeleteHistory = (item) => {
+  Modal.confirm({
+    title: '确认删除',
+    content: `确定要删除报告「${item.title}」吗？删除后无法恢复。`,
+    okText: '确认删除',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: async () => {
+      try {
+        // 调用删除 API
+        await deleteHistoryReport(item.id)
+        Message.success('删除成功')
+        
+        // 刷新历史记录列表
+        await fetchHistoryList()
+        
+        // 如果删除的是当前正在查看的记录，清空编辑器内容
+        if (activeHistoryId.value === item.id) {
+          activeHistoryId.value = null
+          isViewingHistory.value = false
+          currentHistoryId.value = null
+          if (editorRef.value) {
+            editorRef.value.innerHTML = `
+              <h1 style="text-align:center; color: #333;">公众号文章分析报告</h1>
+              <p style="text-align:center; color: #999;">点击左侧「生成报告」，AI 将根据筛选条件自动撰写报告内容</p>
+              <p style="text-align:center; color: #999;">生成后您可以直接在此编辑文字、调整格式</p>
+            `
+            hasContent.value = false
+          }
+        }
+      } catch (error) {
+        console.error('删除失败:', error)
+        Message.error(String(error || '删除失败'))
+      }
+    }
+  })
+}
 // ---- 初始化 ----
 onMounted(async () => {
   mpId.value = (route.query.mpId as string) || ''
@@ -427,15 +688,16 @@ onMounted(async () => {
   source.value = (route.query.source as string) || 'all'
   
   if (source.value === 'folder') {
-    folderId.value = (route.query.folderId as string) || ''
-    folderName.value = (route.query.folderName as string) || (route.query.mpName as string) || '文件夹'
+    folderId.value = (route.query.folder_id as string) || ''
+    folderName.value = (route.query.folder_name as string) || (route.query.mpName as string) || '文件夹'
   }
   // 如果没有传 mpName 但有 mpId，尝试从 mpId 生成一个默认名称
   if (mpId.value && !mpName.value) {
     mpName.value = `公众号(${mpId.value.substring(0, 8)})`
   }
   await loadConfig()
-
+  // 加载历史记录列表
+  await fetchHistoryList()
   // 初始占位内容
   if (editorRef.value) {
     editorRef.value.innerHTML = `
@@ -484,6 +746,100 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--color-text-3);
   font-weight: 500;
+}
+/* 历史记录区域 */
+.history-panel-section {
+  border-top: 1px solid var(--color-neutral-3);
+  margin-top: 8px;
+  padding-top: 12px;
+  flex-shrink: 0;
+}
+
+.history-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* 历史记录项：左右布局 */
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--color-fill-1);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+/* 悬浮效果 */
+.history-item:hover {
+  background: var(--color-primary-light-1);
+  /* border-color: var(--color-primary-3); */
+}
+/* 当前选中的记录 */
+.history-item-active {
+  background: var(--color-primary-light-1);
+  /* border-color: var(--color-primary-4); */
+}
+/* 可点击的内容区域（占满剩余空间） */
+.history-item-content {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+/* 删除按钮：默认透明，hover 时显示 */
+.history-item-delete {
+  opacity: 0;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50% !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 删除按钮 hover 时的样式 */
+.history-item-delete:hover {
+  background-color: rgba(255, 77, 79, 0.1) !important;
+  color: #ff4d4f !important;
+}
+/* 删除按钮 hover 时图标也变红 */
+.history-item-delete:hover .arco-icon {
+  color: #ff4d4f;
+}
+/* 悬浮在整条记录上时，删除按钮显示 */
+.history-item:hover .history-item-delete {
+  opacity: 1;
+}
+
+/* 标题样式 */
+.history-item-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-1);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 时间样式 */
+.history-item-time {
+  font-size: 10px;
+  color: var(--color-text-3);
+}
+
+/* 空状态样式 */
+.history-empty, .history-loading {
+  text-align: center;
+  padding: 16px;
+  color: var(--color-text-3);
+  font-size: 12px;
 }
 
 .right-panel {
