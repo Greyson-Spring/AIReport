@@ -22,3 +22,5 @@ from .ai_summary_task import AISummaryTask
 from .base import *
 # 导入文件夹模型
 from .folder import Folder, FolderFeed
+# 导入AI报告历史模型
+from .ai_report_history import AIReportHistory
