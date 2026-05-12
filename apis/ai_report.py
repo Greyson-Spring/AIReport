@@ -10,13 +10,16 @@ from core.db import DB
 from core.models.article import Article
 from .base import success_response, error_response
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, Inches, RGBColor  # 设置全局段落间距
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-# from core.models.folder import FolderFeed  # 新增
 from core.models.ai_report_history import AIReportHistory
 from core.models.feed import Feed  
 from core.models.folder import Folder, FolderFeed
-
+import markdown
+from bs4 import BeautifulSoup
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
+import re
 
 router = APIRouter(prefix="/ai", tags=["AI功能"])
 
@@ -78,69 +81,275 @@ async def _call_llm(api_url: str, api_key: str, model: str,
         .get("content", "")
     )
     return content.strip()
-
-
-def _build_word_document(report_text: str, title: str, date_range: str) -> io.BytesIO:
-    """将AI生成的报告文本构建为Word文档"""
+def _build_word_document(markdown_text: str, title: str, date_range: str) -> io.BytesIO:
+    """
+    将 Markdown 格式的报告转换为 Word 文档
+    支持超链接、加粗、斜体、标题、列表等所有格式
+    
+    参数：
+        markdown_text: Markdown 格式的报告内容（已包含一级标题）
+        title: 文档主标题（从数据库 title 字段传入）
+        date_range: 报告周期（如 "2026-05-01 ~ 2026-05-31"）
+    
+    返回：
+        BytesIO 对象，可直接用于下载
+    """
+    
+    # ========== 辅助函数1：设置中文字体 ==========
+    def set_chinese_font(run, font_name='微软雅黑', font_size=None):
+        """
+        为 Run 对象设置中文字体
+        必须同时设置 font.name 和 eastAsia 属性，否则中文会显示为 MS Gothic
+        """
+        run.font.name = font_name
+        if font_size:
+            run.font.size = Pt(font_size)
+        
+        # 关键：设置中文字体属性（解决中文显示为 MS Gothic 的问题）
+        rPr = run._element.get_or_add_rPr()
+        rFonts = rPr.get_or_add_rFonts()
+        rFonts.set(qn('w:eastAsia'), font_name)
+        rFonts.set(qn('w:ascii'), font_name)
+        rFonts.set(qn('w:hAnsi'), font_name)
+    
+    # ========== 辅助函数2：设置标题字体 ==========
+    def set_heading_font(heading, font_name='微软雅黑', font_size=None):
+        """为标题设置字体"""
+        if heading.runs:
+            set_chinese_font(heading.runs[0], font_name, font_size)
+    
+    # ========== 辅助函数3：添加超链接（带样式） ==========
+    def add_hyperlink(paragraph, url, text):
+        """
+        在段落中添加可点击的超链接，手动设置蓝色 + 下划线
+        """
+        
+        # 获取文档部件，添加外部链接关系
+        part = paragraph.part
+        r_id = part.relate_to(
+            url,
+            'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink',
+            is_external=True
+        )
+        
+        # 创建超链接 XML 元素
+        hyperlink = OxmlElement('w:hyperlink')
+        hyperlink.set(qn('r:id'), r_id)
+        
+        # 创建 run 元素
+        run = OxmlElement('w:r')
+        
+        # ========== 手动设置字体属性 ==========
+        rPr = OxmlElement('w:rPr')
+        
+        # 1. 设置颜色为蓝色（#0000FF）
+        color = OxmlElement('w:color')
+        color.set(qn('w:val'), '0000FF')
+        rPr.append(color)
+        
+        # 2. 设置下划线（single = 单下划线）
+        underline = OxmlElement('w:u')
+        underline.set(qn('w:val'), 'single')
+        rPr.append(underline)
+        
+        # 3. 设置字体为微软雅黑
+        rFonts = OxmlElement('w:rFonts')
+        rFonts.set(qn('w:ascii'), '微软雅黑')
+        rFonts.set(qn('w:eastAsia'), '微软雅黑')
+        rFonts.set(qn('w:hAnsi'), '微软雅黑')
+        rPr.append(rFonts)
+        
+        # 将样式应用到 run
+        run.append(rPr)
+        
+        # 添加文本
+        run_text = OxmlElement('w:t')
+        run_text.text = text
+        run.append(run_text)
+        
+        # 组装
+        hyperlink.append(run)
+        paragraph._p.append(hyperlink)
+    
+    # ========== 辅助函数4：规范化 Markdown 链接 ==========
+    def normalize_markdown_links(text):
+        """规范化 Markdown 链接格式，修复常见的格式错误"""
+        # 修复 [标题] (url) -> [标题](url)（去掉空格）
+        text = re.sub(r'\[([^\]]+)\]\s*\(([^)]+)\)', r'[\1](\2)', text)
+        # 修复没有方括号的链接（纯 URL 转成链接格式）
+        text = re.sub(r'(?<![\[(])(https?://[^\s\)\]]+)', r'[\1](\1)', text)
+        return text
+    
+    # ========== 第一步：去掉 markdown_text 中的一级标题 ==========
+    lines = markdown_text.split('\n')
+    content_without_title = []
+    skip_title = False
+    
+    for i, line in enumerate(lines):
+        if i == 0 and line.strip().startswith('# '):
+            skip_title = True
+            continue
+        if skip_title and not line.strip():
+            skip_title = False
+            continue
+        content_without_title.append(line)
+    
+    cleaned_markdown = '\n'.join(content_without_title).strip()
+    if not cleaned_markdown:
+        cleaned_markdown = markdown_text
+    
+    # ========== 第二步：规范化链接格式 ==========
+    cleaned_markdown = normalize_markdown_links(cleaned_markdown)
+    
+    # ========== 第三步：调试日志 ==========
+    link_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+    found_links = re.findall(link_pattern, cleaned_markdown)
+    print(f" 检测到 {len(found_links)} 个 Markdown 链接")
+    
+    # ========== 第四步：创建 Word 文档 ==========
     doc = Document()
-
-    # 设置默认字体
-    style = doc.styles['Normal']
-    font = style.font
-    font.name = '微软雅黑'
-    font.size = Pt(11)
-
-    # 标题
-    heading = doc.add_heading(title, level=0)
-    heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    # 日期范围
+    
+    # ========== 第五步：修改标题样式为黑色 ==========
+    for level in range(1, 5):
+        try:
+            heading_style = doc.styles[f'Heading {level}']
+            heading_style.font.color.rgb = RGBColor(0, 0, 0)  # 黑色
+            heading_style.font.name = '微软雅黑'
+            heading_style._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+            
+            if level == 1:
+                heading_style.font.size = Pt(18)
+            elif level == 2:
+                heading_style.font.size = Pt(16)
+            elif level == 3:
+                heading_style.font.size = Pt(14)
+        except KeyError:
+            pass
+    
+    # ========== 第六步：设置全局段落间距为0 ==========
+    normal_style = doc.styles['Normal']
+    normal_style.font.color.rgb = RGBColor(0, 0, 0)
+    normal_style.font.name = '微软雅黑'
+    normal_style.font.size = Pt(11)
+    normal_style._element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
+    normal_style.paragraph_format.space_after = Pt(0)
+    normal_style.paragraph_format.space_before = Pt(0)
+    
+    # ========== 第七步：添加文档主标题 ==========
+    main_title = doc.add_heading(title, level=1)
+    main_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    set_heading_font(main_title, '微软雅黑', 22)
+    
+    # ========== 第八步：添加日期范围和生成时间 ==========
     date_para = doc.add_paragraph()
     date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     date_run = date_para.add_run(f"报告周期：{date_range}")
-    date_run.font.size = Pt(10)
+    set_chinese_font(date_run, '微软雅黑', 10)
     date_run.font.color.rgb = RGBColor(128, 128, 128)
-
-    # 生成时间
+    
     time_para = doc.add_paragraph()
     time_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     time_run = time_para.add_run(f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    time_run.font.size = Pt(10)
+    set_chinese_font(time_run, '微软雅黑', 10)
     time_run.font.color.rgb = RGBColor(128, 128, 128)
-
-    doc.add_paragraph()  # 空行
-
-    # 解析报告内容，按行处理
-    lines = report_text.split('\n')
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            doc.add_paragraph()
-            continue
-
-        # 处理标题行
-        if stripped.startswith('# '):
-            doc.add_heading(stripped[2:], level=1)
-        elif stripped.startswith('## '):
-            doc.add_heading(stripped[3:], level=2)
-        elif stripped.startswith('### '):
-            doc.add_heading(stripped[4:], level=3)
-        elif stripped.startswith('#### '):
-            doc.add_heading(stripped[5:], level=4)
-        elif stripped.startswith('- ') or stripped.startswith('* '):
-            doc.add_paragraph(stripped[2:], style='List Bullet')
-        elif stripped[0].isdigit() and '. ' in stripped[:5]:
-            idx = stripped.index('. ')
-            doc.add_paragraph(stripped[idx + 2:], style='List Number')
+    
+    # ========== 第九步：Markdown 转 HTML ==========
+    html_content = markdown.markdown(cleaned_markdown, extensions=['extra', 'nl2br'])
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # ========== 第十步：递归处理行内元素 ==========
+    def process_inline(paragraph, elem):
+        """处理行内元素（文本、链接、加粗、斜体）"""
+        if elem.name is None:
+            if elem.string and elem.string.strip():
+                run = paragraph.add_run(elem.string)
+                set_chinese_font(run, '微软雅黑', 11)
+            return
+        
+        # 处理超链接
+        if elem.name == 'a':
+            url = elem.get('href', '')
+            text = elem.get_text(strip=True)
+            if url and text:
+                add_hyperlink(paragraph, url, text)
+            return
+        
+        # 处理加粗
+        if elem.name in ('strong', 'b'):
+            for child in elem.children:
+                process_inline(paragraph, child)
+            if paragraph.runs:
+                paragraph.runs[-1].bold = True
+            return
+        
+        # 处理斜体
+        if elem.name in ('em', 'i'):
+            for child in elem.children:
+                process_inline(paragraph, child)
+            if paragraph.runs:
+                paragraph.runs[-1].italic = True
+            return
+        
+        # 其他标签，递归处理子元素
+        for child in elem.children:
+            process_inline(paragraph, child)
+    
+    # ========== 第十一步：递归处理块级元素 ==========
+    def process_element(elem):
+        """处理块级元素"""
+        if elem.name is None:
+            return
+        
+        if elem.name == 'h1':
+            heading = doc.add_heading(elem.get_text(strip=True), level=2)
+            set_heading_font(heading, '微软雅黑', 18)
+        elif elem.name == 'h2':
+            heading = doc.add_heading(elem.get_text(strip=True), level=2)
+            set_heading_font(heading, '微软雅黑', 16)
+        elif elem.name == 'h3':
+            heading = doc.add_heading(elem.get_text(strip=True), level=3)
+            set_heading_font(heading, '微软雅黑', 14)
+        elif elem.name == 'h4':
+            heading = doc.add_heading(elem.get_text(strip=True), level=4)
+            set_heading_font(heading, '微软雅黑', 12)
+        elif elem.name == 'p':
+            # 检查段落是否有实际内容，空段落跳过
+            text = elem.get_text(strip=True)
+            if not text:
+                return
+            p = doc.add_paragraph()
+            for child in elem.children:
+                process_inline(p, child)
+        elif elem.name == 'ul':
+            for li in elem.find_all('li', recursive=False):
+                p = doc.add_paragraph(style='List Bullet')
+                for child in li.children:
+                    process_inline(p, child)
+        elif elem.name == 'ol':
+            for li in elem.find_all('li', recursive=False):
+                p = doc.add_paragraph(style='List Number')
+                for child in li.children:
+                    process_inline(p, child)
+        elif elem.name == 'hr':
+            p = doc.add_paragraph()
+            p.add_run('_' * 50)
         else:
-            doc.add_paragraph(stripped)
-
+            for child in elem.children:
+                process_element(child)
+    
+    # ========== 第十二步：执行解析 ==========
+    for elem in soup.children:
+        if elem.name is not None:
+            process_element(elem)
+    
+    # ========== 第十三步：保存并返回 ==========
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
     return buf
 
-
+# ========= 生成报告并返回 Word 文件 ==========
+'''
 @router.post("/report", summary="AI报告生成")
 async def ai_report(
     req: AIReportRequest,
@@ -365,6 +574,8 @@ async def ai_report(
     finally:
         session.close()
         
+'''
+
 @router.post("/report/preview", summary="AI报告预览")
 async def ai_report_preview(
     req: AIReportRequest,
@@ -476,11 +687,17 @@ async def ai_report_preview(
             "【输出格式要求】\n"
             "第一行必须以 'TITLE: ' 开头，后接10-15字的概括性标题，概括本期核心主题\n"
             "标题后必须空一行\n"
-            "开始报告正文，使用 Markdown 格式组织\n\n"
+            "正文使用 Markdown 格式\n\n"
             "【参考来源要求】\n"
             "在报告正文结束后，请添加「参考来源」章节，列出所有在报告中引用的文章。\n"
-            "每条参考来源的格式如下（使用 Markdown 链接格式）：\n"
+            "每条来源必须使用标准的 Markdown 链接格式，且链接不能省略：\n"
             "[序号] 文章标题(文章链接)，公众号名称，YYYY-MM-DD\n"
+            "【格式示例】\n"
+            "`[1] [安谋科技八周年庆典](https://mp.weixin.qq.com/s/xxx)，安谋科技，2026-05-01`\n\n"
+            "【特别注意】\n"
+            "- 链接 href 属性必须是文章的真实 URL\n"
+            "- 不允许输出任何不带链接的纯文本引用\n"
+            "- 不要省略方括号和圆括号之间的空格或换行"
             "【输出禁令】\n"
             "- 正文中禁止使用一级标题（#）\n"
             "- 严禁只提供碎片化的短句，每个分析点需具备一定的论述深度；\n"
@@ -524,12 +741,6 @@ async def ai_report_preview(
             real_source = 'favorite'
         elif req.source == 'folder':
             real_source = 'folder'
-            # ⭐ 新增：根据 folder_id 获取文件夹名称
-            # folder_name_from_db = None
-            # if req.folder_id:
-            #     folder = session.query(Folder).filter(Folder.id == req.folder_id).first()
-            #     folder_name_from_db = folder.name if folder else None
-
         elif req.mp_id:
             # 有 mp_id 且不是上面情况 = 单个公众号
             real_source = 'mp'
@@ -687,9 +898,12 @@ async def export_history_report(
         
         # 7. 将保存的 Markdown 内容转换为 Word 文档
         doc_buffer = _build_word_document(
-            history.report_content,  # 使用保存的内容，不重新调用AI
-            title,
-            date_range
+            # history.report_content,  # 使用保存的内容，不重新调用AI
+            # title,
+            # date_range
+            markdown_text=history.report_content,  # Markdown 内容
+            title=history.title,                   # 使用数据库中的标题
+            date_range=date_range                  # 日期范围
         )
         
         # 8. 生成文件名
