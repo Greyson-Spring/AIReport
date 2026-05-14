@@ -96,6 +96,123 @@ def create_user_feeds_table(engine: Engine) -> bool:
     return True
 
 
+def user_favorites_table_exists(engine: Engine) -> bool:
+    """检查 user_favorites 表是否存在"""
+    inspector = inspect(engine)
+    return "user_favorites" in inspector.get_table_names()
+
+
+def create_user_favorites_table(engine: Engine) -> bool:
+    """创建 user_favorites 表（用户文章收藏关联）"""
+    if user_favorites_table_exists(engine):
+        print_info("user_favorites 表已存在，跳过创建")
+        return False
+
+    is_mysql = cfg.get("db", "").startswith("mysql")
+    is_sqlite = cfg.get("db", "").startswith("sqlite")
+
+    with engine.begin() as conn:
+        if is_mysql:
+            conn.execute(text("""
+                CREATE TABLE user_favorites (
+                    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
+                    user_id VARCHAR(100) NOT NULL COMMENT '用户ID',
+                    article_id VARCHAR(255) NOT NULL COMMENT '文章ID',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '收藏时间',
+                    INDEX idx_user_fav_user (user_id),
+                    INDEX idx_user_fav_article (article_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户文章收藏关联'
+            """))
+        elif is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_favorites (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id VARCHAR(100) NOT NULL,
+                    article_id VARCHAR(255) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_fav_user ON user_favorites(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_user_fav_article ON user_favorites(article_id)"))
+        else:
+            # PostgreSQL
+            conn.execute(text("""
+                CREATE TABLE user_favorites (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(100) NOT NULL,
+                    article_id VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX idx_user_fav_user ON user_favorites(user_id)"))
+            conn.execute(text("CREATE INDEX idx_user_fav_article ON user_favorites(article_id)"))
+
+    print_success("user_favorites 表创建成功")
+    return True
+
+
+def migrate_existing_favorites(engine: Engine) -> int:
+    """
+    迁移已有的收藏数据到 user_favorites 表。
+    对于 articles 表中 is_favorite=1 的文章，为每个现有用户创建收藏记录。
+    这样可以保持迁移前后的体验一致（之前是全局收藏，迁移后每个用户都能看到）。
+    """
+    if not user_favorites_table_exists(engine):
+        print_info("user_favorites 表不存在，跳过收藏数据迁移")
+        return 0
+
+    # 先检查是否已有数据，避免重复迁移
+    from sqlalchemy.orm import Session
+    with Session(engine) as session:
+        existing_count = session.execute(
+            text("SELECT COUNT(*) FROM user_favorites")
+        ).scalar()
+        if existing_count and existing_count > 0:
+            print_info(f"user_favorites 表已有 {existing_count} 条记录，跳过迁移")
+            return 0
+
+        # 获取所有 is_favorite=1 的文章
+        fav_articles = session.execute(
+            text("SELECT id, created_at FROM articles WHERE is_favorite = 1 OR is_favorite = '1'")
+        ).fetchall()
+        if not fav_articles:
+            print_info("没有需要迁移的收藏文章")
+            return 0
+
+        # 获取所有用户
+        users = session.execute(
+            text("SELECT DISTINCT user_id FROM user_feeds WHERE user_id IS NOT NULL AND user_id != ''")
+        ).fetchall()
+        all_users = [row[0] for row in users]
+
+        if not all_users:
+            print_info("没有用户数据，跳过收藏迁移")
+            return 0
+
+        migrated = 0
+        now = datetime.now()
+        for article_id, article_created_at in fav_articles:
+            for uid in all_users:
+                existing = session.execute(
+                    text("SELECT id FROM user_favorites WHERE user_id = :uid AND article_id = :aid"),
+                    {"uid": uid, "aid": article_id}
+                ).fetchone()
+                if not existing:
+                    session.execute(
+                        text("INSERT INTO user_favorites (user_id, article_id, created_at) VALUES (:uid, :aid, :ca)"),
+                        {"uid": uid, "aid": article_id, "ca": article_created_at or now}
+                    )
+                    migrated += 1
+
+        if migrated > 0:
+            session.commit()
+            print_success(f"已迁移 {migrated} 条收藏记录到 user_favorites 表（为 {len(all_users)} 个用户，{len(fav_articles)} 篇文章）")
+        else:
+            print_info("没有需要迁移的收藏记录")
+
+        return migrated
+
+
 def migrate_feeds_user_id(engine: Engine) -> int:
     """
     迁移 feeds.user_id 数据到 user_feeds
@@ -306,6 +423,25 @@ def run_migration():
 
     # Step 4: 删除 feeds.user_id 列
     drop_user_id_from_feeds(engine)
+
+    print_success("=" * 50)
+    print_success("user_feeds 迁移完成")
+    print_success("=" * 50)
+
+    # ===== 新增：user_favorites 表迁移 =====
+    print_info("=" * 50)
+    print_info("开始 user_favorites 数据迁移...")
+    print_info("=" * 50)
+
+    # Step 5: 创建 user_favorites 表
+    create_user_favorites_table(engine)
+
+    # Step 6: 迁移现有收藏数据
+    migrate_existing_favorites(engine)
+
+    print_success("=" * 50)
+    print_success("user_favorites 迁移完成")
+    print_success("=" * 50)
 
     print_success("=" * 50)
     print_success("user_feeds 迁移完成")

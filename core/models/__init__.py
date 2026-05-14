@@ -26,3 +26,5 @@ from .folder import Folder, FolderFeed
 from .ai_report_history import AIReportHistory
 # 导入用户-公众号订阅关联模型
 from .user_feed import UserFeed
+# 导入用户文章收藏关联模型
+from .user_favorite import UserFavorite

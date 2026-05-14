@@ -221,6 +221,8 @@ async def toggle_article_favorite_status(
 ):
     session = DB.get_session()
     try:
+        from core.models.user_favorite import UserFavorite
+
         article = session.query(Article).filter(Article.id == article_id).first()
         if not article:
             raise HTTPException(
@@ -231,7 +233,33 @@ async def toggle_article_favorite_status(
                 )
             )
 
-        article.is_favorite = 1 if is_favorite else 0
+        # 获取当前用户的唯一标识（与 UserFeed 使用同一字段：username）
+        user_id = current_user.get("username")
+        if not user_id:
+            ou = current_user.get("original_user")
+            if ou:
+                user_id = ou.username
+        if not user_id:
+            raise HTTPException(
+                status_code=fast_status.HTTP_401_UNAUTHORIZED,
+                detail=error_response(code=40101, message="无法识别用户身份")
+            )
+
+        if is_favorite:
+            # 收藏：添加 UserFavorite 记录（每人每篇文章只能收藏一次）
+            existing = session.query(UserFavorite).filter(
+                UserFavorite.user_id == user_id,
+                UserFavorite.article_id == article_id
+            ).first()
+            if not existing:
+                session.add(UserFavorite(user_id=user_id, article_id=article_id))
+        else:
+            # 取消收藏：删除当前用户的收藏记录
+            session.query(UserFavorite).filter(
+                UserFavorite.user_id == user_id,
+                UserFavorite.article_id == article_id
+            ).delete()
+
         session.commit()
 
         clear_cache_pattern("articles_list")
@@ -306,7 +334,9 @@ async def get_articles(
             query = query.filter(ArticleBase.status != DATA_STATUS.DELETED)
 
         # 用户文章隔离：未指定 mp_id 时，只显示当前用户订阅的公众号文章
-        if not mp_id:
+        # 但当 only_favorite=True 时跳过订阅过滤，因为 UserFavorite JOIN
+        # 已经保证只返回用户收藏的文章（包括精选文章，它不在 UserFeed 中）
+        if not mp_id and not only_favorite:
             from core.models.user_feed import UserFeed
             user_id = current_user.get("username")
             if not user_id:
@@ -344,26 +374,62 @@ async def get_articles(
 
         if mp_id:
             query = query.filter(ArticleBase.mp_id == mp_id)
-            # 指定公众号时也要尊重用户的停用状态
-            user_id = current_user.get("username")
-            if not user_id:
-                ou = current_user.get("original_user")
-                if ou:
-                    user_id = ou.username
-            if user_id:
-                from core.models.user_feed import UserFeed
-                uf = session.query(UserFeed).filter(
-                    UserFeed.user_id == user_id,
-                    UserFeed.feed_id == mp_id
-                ).first()
-                if uf and uf.status == 0 and uf.disabled_at is not None:
-                    disabled_ts = int(uf.disabled_at.timestamp())
-                    query = query.filter(
-                        ArticleBase.publish_time.isnot(None),
-                        ArticleBase.publish_time <= disabled_ts
-                    )
+
+            # 精选文章按用户隔离：只显示当前用户有收藏记录的文章
+            from core.models.feed import FEATURED_MP_ID as _FID
+            if mp_id == _FID:
+                from core.models.user_favorite import UserFavorite
+                uid = current_user.get("username")
+                if not uid:
+                    ou = current_user.get("original_user")
+                    if ou:
+                        uid = ou.username
+                if uid:
+                    query = query.join(UserFavorite, and_(
+                        UserFavorite.article_id == ArticleBase.id,
+                        UserFavorite.user_id == uid
+                    ))
+                else:
+                    query = query.filter(false())
+            else:
+                # 普通公众号：尊重用户的停用状态
+                user_id = current_user.get("username")
+                if not user_id:
+                    ou = current_user.get("original_user")
+                    if ou:
+                        user_id = ou.username
+                if user_id:
+                    from core.models.user_feed import UserFeed
+                    uf = session.query(UserFeed).filter(
+                        UserFeed.user_id == user_id,
+                        UserFeed.feed_id == mp_id
+                    ).first()
+                    if uf and uf.status == 0 and uf.disabled_at is not None:
+                        disabled_ts = int(uf.disabled_at.timestamp())
+                        query = query.filter(
+                            ArticleBase.publish_time.isnot(None),
+                            ArticleBase.publish_time <= disabled_ts
+                        )
         if only_favorite:
-            query = query.filter(ArticleBase.is_favorite == 1)
+            # 使用 UserFavorite 表实现按用户筛选收藏（不同用户收藏独立）
+            from core.models.user_favorite import UserFavorite
+            from core.models.feed import FEATURED_MP_ID as _FID
+            # 精选文章已在上面的 mp_id 分支中做了 UserFavorite 隔离，跳过以避免重复 JOIN
+            if mp_id == _FID:
+                pass
+            else:
+                uid = current_user.get("username")
+                if not uid:
+                    ou = current_user.get("original_user")
+                    if ou:
+                        uid = ou.username
+                if uid:
+                    query = query.join(UserFavorite, and_(
+                        UserFavorite.article_id == ArticleBase.id,
+                        UserFavorite.user_id == uid
+                    ))
+                else:
+                    query = query.filter(false())
         if search:
             query = query.filter(
                format_search_kw(search)
@@ -388,6 +454,22 @@ async def get_articles(
                 feed = session.query(Feed).filter(Feed.id == article.mp_id).first()
                 mp_names[article.mp_id] = feed.mp_name if feed else "未知公众号"
         
+        # 批量查询当前用户的收藏状态（使用 UserFavorite，实现按用户隔离）
+        from core.models.user_favorite import UserFavorite
+        favorited_article_ids = set()
+        uid = current_user.get("username")
+        if not uid:
+            ou = current_user.get("original_user")
+            if ou:
+                uid = ou.username
+        if uid and results:
+            article_ids = [result[0].id for result in results]
+            fav_records = session.query(UserFavorite).filter(
+                UserFavorite.user_id == uid,
+                UserFavorite.article_id.in_(article_ids)
+            ).all()
+            favorited_article_ids = {r.article_id for r in fav_records}
+
         # 合并公众号名称到文章列表
         article_list = []
         for result in results:
@@ -395,7 +477,7 @@ async def get_articles(
             has_content_val = result[1]  # has_content 计算值
             article_dict = article.__dict__.copy()
             article_dict["mp_name"] = mp_names.get(article.mp_id, "未知公众号")
-            article_dict["is_favorite"] = int(getattr(article, "is_favorite", 0) or 0)
+            article_dict["is_favorite"] = 1 if article.id in favorited_article_ids else 0
             article_dict["has_content"] = has_content_val
             article_list.append(article_dict)
         
@@ -488,7 +570,7 @@ async def get_refresh_task_status(
 def get_article_detail(
     article_id: str,
     content: bool = Query(False),
-    # current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user_or_ak)
 ):
     session = DB.get_session()
     try:
@@ -512,7 +594,22 @@ def get_article_detail(
                 clear_cache_pattern("article_detail")
                 clear_cache_pattern("home_page")
                 clear_cache_pattern("tag_detail")
-        return success_response(fix_article(article))
+        result = fix_article(article)
+        # 如果已登录，从 UserFavorite 表查询当前用户的收藏状态
+        if current_user:
+            user_id = current_user.get("username")
+            if not user_id:
+                ou = current_user.get("original_user")
+                if ou:
+                    user_id = ou.username
+            if user_id:
+                from core.models.user_favorite import UserFavorite
+                fav = session.query(UserFavorite).filter(
+                    UserFavorite.user_id == user_id,
+                    UserFavorite.article_id == article_id
+                ).first()
+                result["is_favorite"] = 1 if fav else 0
+        return success_response(result)
     except HTTPException as e:
         raise e
     except Exception as e:

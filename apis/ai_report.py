@@ -15,6 +15,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from core.models.ai_report_history import AIReportHistory
 from core.models.feed import Feed  
 from core.models.folder import Folder, FolderFeed
+from sqlalchemy import and_
 import markdown
 from bs4 import BeautifulSoup
 from docx.oxml.ns import qn
@@ -400,7 +401,20 @@ async def ai_report(
             query = query.filter(Article.mp_id.in_(feed_ids))
         
         if req.source == "favorite":
-            query = query.filter(Article.is_favorite == 1)
+            # 按用户隔离精选文章：只查当前用户收藏的文章
+            from core.models.user_favorite import UserFavorite
+            uid = current_user.get("username")
+            if not uid:
+                ou = current_user.get("original_user")
+                if ou:
+                    uid = ou.username
+            if uid:
+                query = query.join(UserFavorite, and_(
+                    UserFavorite.article_id == Article.id,
+                    UserFavorite.user_id == uid
+                ))
+            else:
+                query = query.filter(false())
         
         if req.keyword:
             kw = f"%{req.keyword}%"
@@ -634,7 +648,20 @@ async def ai_report_preview(
         
         # 精选文章筛选（只有 source="favorite" 时才应用）
         if req.source == "favorite":
-            query = query.filter(Article.is_favorite == 1)
+            # 按用户隔离精选文章：只查当前用户收藏的文章
+            from core.models.user_favorite import UserFavorite
+            uid = current_user.get("username")
+            if not uid:
+                ou = current_user.get("original_user")
+                if ou:
+                    uid = ou.username
+            if uid:
+                query = query.join(UserFavorite, and_(
+                    UserFavorite.article_id == Article.id,
+                    UserFavorite.user_id == uid
+                ))
+            else:
+                query = query.filter(false())
         
         # 关键词搜索
         if req.keyword:

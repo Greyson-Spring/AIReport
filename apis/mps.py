@@ -67,7 +67,7 @@ def _ensure_featured_feed(session):
     return featured_feed
 
 
-def _run_add_featured_article_task(task_id: str, url: str):
+def _run_add_featured_article_task(task_id: str, url: str, user_id: str | None = None):
     session = DB.get_session()
     fetcher = None
     try:
@@ -78,6 +78,7 @@ def _run_add_featured_article_task(task_id: str, url: str):
             "message": "任务执行中"
         })
         from core.models.article import Article
+        from core.models.user_favorite import UserFavorite
         target_url = str(url or "").strip()
         if not target_url:
             raise ValueError("请输入文章链接")
@@ -87,58 +88,88 @@ def _run_add_featured_article_task(task_id: str, url: str):
             raise ValueError(info.get("fetch_error") or "文章抓取失败，请检查链接或登录状态")
         if info.get("content") == "DELETED":
             raise ValueError("该文章暂不可访问或已删除")
-        raw_article_id = info.get("id") or fetcher.extract_id_from_url(target_url)
-        if not raw_article_id:
-            raise ValueError("无法解析文章ID，请确认链接格式")
+
         _ensure_featured_feed(session)
-        article_id = f"{FEATURED_MP_ID}-{raw_article_id}".replace("MP_WXS_", "")
+
+        # 按 URL 查重（不限 mp_id）：如果文章已存在于任何公众号下，直接复用，不重复创建
+        existing_by_url = session.query(Article).filter(
+            Article.url == target_url
+        ).first()
+
         now = datetime.now()
-        publish_time = info.get("publish_time")
-        if not isinstance(publish_time, int):
-            try:
-                publish_time = int(publish_time)
-            except Exception:
-                publish_time = int(now.timestamp())
-        article_data = {
-            "title": info.get("title") or target_url,
-            "description": info.get("description") or fetcher.get_description(info.get("content") or ""),
-            "content": info.get("content") or "",
-            "publish_time": publish_time,
-            "url": target_url,
-            "pic_url": info.get("topic_image") or info.get("pic_url") or "",
-        }
-        existing = session.query(Article).filter(Article.id == article_id).first()
-        if existing:
-            existing.mp_id = FEATURED_MP_ID
-            existing.title = article_data["title"]
-            existing.description = article_data["description"]
-            existing.content = article_data["content"]
-            existing.publish_time = article_data["publish_time"]
-            existing.url = article_data["url"]
-            existing.pic_url = article_data["pic_url"]
-            existing.is_favorite = 1
-            existing.status = DATA_STATUS.ACTIVE
-            existing.updated_at = int(now.timestamp())
-            existing.updated_at_millis = int(now.timestamp() * 1000)
+
+        if existing_by_url:
+            # 文章已存在（可能属于某个已订阅的公众号），复用记录
+            article = existing_by_url
+            article_id = existing_by_url.id
             created = False
+            # 更新文章内容（保持最新），但不修改 mp_id（保留在原公众号下）
+            article.title = info.get("title") or target_url
+            article.description = info.get("description") or fetcher.get_description(info.get("content") or "")
+            article.content = info.get("content") or ""
+            article.publish_time = info.get("publish_time") or article.publish_time
+            article.url = target_url
+            article.pic_url = info.get("topic_image") or info.get("pic_url") or ""
+            article.status = DATA_STATUS.ACTIVE
+            article.updated_at = int(now.timestamp())
+            article.updated_at_millis = int(now.timestamp() * 1000)
         else:
-            session.add(Article(
-                id=article_id,
-                mp_id=FEATURED_MP_ID,
-                title=article_data["title"],
-                description=article_data["description"],
-                content=article_data["content"],
-                publish_time=article_data["publish_time"],
-                url=article_data["url"],
-                pic_url=article_data["pic_url"],
-                status=DATA_STATUS.ACTIVE,
-                created_at=now,
-                updated_at=int(now.timestamp()),
-                updated_at_millis=int(now.timestamp() * 1000),
-                is_read=0,
-                is_favorite=1
-            ))
-            created = True
+            # 全新文章：创建到精选文章公众号下
+            raw_article_id = info.get("id") or fetcher.extract_id_from_url(target_url)
+            if not raw_article_id:
+                raise ValueError("无法解析文章ID，请确认链接格式")
+            article_id = f"{FEATURED_MP_ID}-{raw_article_id}".replace("MP_WXS_", "")
+            article = session.query(Article).filter(Article.id == article_id).first()
+            if article:
+                created = False
+                # 已有 FEATURED_MP_ID 记录，更新内容
+                article.title = info.get("title") or target_url
+                article.description = info.get("description") or fetcher.get_description(info.get("content") or "")
+                article.content = info.get("content") or ""
+                article.publish_time = info.get("publish_time") or article.publish_time
+                article.url = target_url
+                article.pic_url = info.get("topic_image") or info.get("pic_url") or ""
+                article.status = DATA_STATUS.ACTIVE
+                article.updated_at = int(now.timestamp())
+                article.updated_at_millis = int(now.timestamp() * 1000)
+            else:
+                publish_time = info.get("publish_time")
+                if not isinstance(publish_time, int):
+                    try:
+                        publish_time = int(publish_time)
+                    except Exception:
+                        publish_time = int(now.timestamp())
+                article = Article(
+                    id=article_id,
+                    mp_id=FEATURED_MP_ID,
+                    title=info.get("title") or target_url,
+                    description=info.get("description") or fetcher.get_description(info.get("content") or ""),
+                    content=info.get("content") or "",
+                    publish_time=publish_time,
+                    url=target_url,
+                    pic_url=info.get("topic_image") or info.get("pic_url") or "",
+                    status=DATA_STATUS.ACTIVE,
+                    created_at=now,
+                    updated_at=int(now.timestamp()),
+                    updated_at_millis=int(now.timestamp() * 1000),
+                    is_read=0,
+                )
+                session.add(article)
+                created = True
+
+        # 为添加该文章的用户创建收藏记录（按用户隔离）
+        if user_id:
+            existing_fav = session.query(UserFavorite).filter(
+                UserFavorite.user_id == user_id,
+                UserFavorite.article_id == article_id
+            ).first()
+            if not existing_fav:
+                session.add(UserFavorite(
+                    user_id=user_id,
+                    article_id=article_id,
+                    created_at=now
+                ))
+
         session.commit()
         clear_cache_pattern("articles_list")
         clear_cache_pattern("article_detail")
@@ -152,7 +183,7 @@ def _run_add_featured_article_task(task_id: str, url: str):
             "id": article_id,
             "mp_id": FEATURED_MP_ID,
             "mp_name": FEATURED_MP_NAME,
-            "title": article_data["title"],
+            "title": article.title,
             "created": created
         })
     except Exception as e:
@@ -320,9 +351,13 @@ async def add_featured_article(
             "status": "pending",
             "message": "任务已创建"
         })
+
+        # 获取当前用户 ID，传递给后台任务用于创建 UserFavorite 记录
+        user_id = _get_user_id(current_user)
+
         threading.Thread(
             target=_run_add_featured_article_task,
-            args=(task_id, target_url),
+            args=(task_id, target_url, user_id),
             daemon=True
         ).start()
 
