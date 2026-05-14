@@ -213,6 +213,114 @@ def migrate_existing_favorites(engine: Engine) -> int:
         return migrated
 
 
+def user_read_articles_table_exists(engine: Engine) -> bool:
+    """检查 user_read_articles 表是否存在"""
+    inspector = inspect(engine)
+    return "user_read_articles" in inspector.get_table_names()
+
+
+def user_hidden_articles_table_exists(engine: Engine) -> bool:
+    """检查 user_hidden_articles 表是否存在"""
+    inspector = inspect(engine)
+    return "user_hidden_articles" in inspector.get_table_names()
+
+
+def create_user_read_articles_table(engine: Engine) -> bool:
+    """创建 user_read_articles 表（用户文章阅读状态）"""
+    if user_read_articles_table_exists(engine):
+        print_info("user_read_articles 表已存在，跳过创建")
+        return False
+
+    is_mysql = cfg.get("db", "").startswith("mysql")
+    is_sqlite = cfg.get("db", "").startswith("sqlite")
+
+    with engine.begin() as conn:
+        if is_mysql:
+            conn.execute(text("""
+                CREATE TABLE user_read_articles (
+                    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
+                    user_id VARCHAR(100) NOT NULL COMMENT '用户ID',
+                    article_id VARCHAR(255) NOT NULL COMMENT '文章ID',
+                    read_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '阅读时间',
+                    INDEX idx_read_user (user_id),
+                    INDEX idx_read_article (article_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户文章阅读状态'
+            """))
+        elif is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_read_articles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id VARCHAR(100) NOT NULL,
+                    article_id VARCHAR(255) NOT NULL,
+                    read_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_read_user ON user_read_articles(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_read_article ON user_read_articles(article_id)"))
+        else:
+            conn.execute(text("""
+                CREATE TABLE user_read_articles (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(100) NOT NULL,
+                    article_id VARCHAR(255) NOT NULL,
+                    read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX idx_read_user ON user_read_articles(user_id)"))
+            conn.execute(text("CREATE INDEX idx_read_article ON user_read_articles(article_id)"))
+
+    print_success("user_read_articles 表创建成功")
+    return True
+
+
+def create_user_hidden_articles_table(engine: Engine) -> bool:
+    """创建 user_hidden_articles 表（用户文章隐藏/按用户删除）"""
+    if user_hidden_articles_table_exists(engine):
+        print_info("user_hidden_articles 表已存在，跳过创建")
+        return False
+
+    is_mysql = cfg.get("db", "").startswith("mysql")
+    is_sqlite = cfg.get("db", "").startswith("sqlite")
+
+    with engine.begin() as conn:
+        if is_mysql:
+            conn.execute(text("""
+                CREATE TABLE user_hidden_articles (
+                    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
+                    user_id VARCHAR(100) NOT NULL COMMENT '用户ID',
+                    article_id VARCHAR(255) NOT NULL COMMENT '文章ID',
+                    hidden_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '隐藏时间',
+                    INDEX idx_hidden_user (user_id),
+                    INDEX idx_hidden_article (article_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户文章隐藏关联'
+            """))
+        elif is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_hidden_articles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id VARCHAR(100) NOT NULL,
+                    article_id VARCHAR(255) NOT NULL,
+                    hidden_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_hidden_user ON user_hidden_articles(user_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_hidden_article ON user_hidden_articles(article_id)"))
+        else:
+            conn.execute(text("""
+                CREATE TABLE user_hidden_articles (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(100) NOT NULL,
+                    article_id VARCHAR(255) NOT NULL,
+                    hidden_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX idx_hidden_user ON user_hidden_articles(user_id)"))
+            conn.execute(text("CREATE INDEX idx_hidden_article ON user_hidden_articles(article_id)"))
+
+    print_success("user_hidden_articles 表创建成功")
+    return True
+
+
 def migrate_feeds_user_id(engine: Engine) -> int:
     """
     迁移 feeds.user_id 数据到 user_feeds
@@ -443,8 +551,19 @@ def run_migration():
     print_success("user_favorites 迁移完成")
     print_success("=" * 50)
 
+    # ===== 新增：user_read_articles 和 user_hidden_articles 表迁移 =====
+    print_info("=" * 50)
+    print_info("开始 user_read_articles / user_hidden_articles 迁移...")
+    print_info("=" * 50)
+
+    # Step 7: 创建 user_read_articles 表
+    create_user_read_articles_table(engine)
+
+    # Step 8: 创建 user_hidden_articles 表
+    create_user_hidden_articles_table(engine)
+
     print_success("=" * 50)
-    print_success("user_feeds 迁移完成")
+    print_success("阅读/隐藏状态表迁移完成")
     print_success("=" * 50)
 
 

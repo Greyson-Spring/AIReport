@@ -174,8 +174,8 @@ async def toggle_article_read_status(
 ):
     session = DB.get_session()
     try:
-        from core.models.article import Article
-        
+        from core.models.user_read_article import UserReadArticle
+
         # 检查文章是否存在
         article = session.query(Article).filter(Article.id == article_id).first()
         if not article:
@@ -186,16 +186,40 @@ async def toggle_article_read_status(
                     message="文章不存在"
                 )
             )
-        
-        # 更新阅读状态
-        article.is_read = 1 if is_read else 0
+
+        # 获取当前用户ID
+        user_id = current_user.get("username")
+        if not user_id:
+            ou = current_user.get("original_user")
+            if ou:
+                user_id = ou.username
+        if not user_id:
+            raise HTTPException(
+                status_code=fast_status.HTTP_401_UNAUTHORIZED,
+                detail=error_response(code=40101, message="无法识别用户身份")
+            )
+
+        if is_read:
+            # 标记已读：添加 UserReadArticle 记录
+            existing = session.query(UserReadArticle).filter(
+                UserReadArticle.user_id == user_id,
+                UserReadArticle.article_id == article_id
+            ).first()
+            if not existing:
+                session.add(UserReadArticle(user_id=user_id, article_id=article_id))
+        else:
+            # 标记未读：删除 UserReadArticle 记录
+            session.query(UserReadArticle).filter(
+                UserReadArticle.user_id == user_id,
+                UserReadArticle.article_id == article_id
+            ).delete()
+
         session.commit()
-        
-        # 清除相关缓存
+
         clear_cache_pattern("articles_list")
         clear_cache_pattern("article_detail")
         clear_cache_pattern("tag_detail")
-        
+
         return success_response({
             "message": f"文章已标记为{'已读' if is_read else '未读'}",
             "is_read": is_read
@@ -332,6 +356,19 @@ async def get_articles(
             query = query.filter(ArticleBase.status == status)
         else:
             query = query.filter(ArticleBase.status != DATA_STATUS.DELETED)
+
+        # 过滤掉当前用户已隐藏的文章（按用户隔离的"删除"功能）
+        uid_hidden = current_user.get("username")
+        if not uid_hidden:
+            ou = current_user.get("original_user")
+            if ou:
+                uid_hidden = ou.username
+        if uid_hidden:
+            from core.models.user_hidden_article import UserHiddenArticle
+            hidden_subq = session.query(UserHiddenArticle.article_id).filter(
+                UserHiddenArticle.user_id == uid_hidden
+            ).subquery()
+            query = query.filter(ArticleBase.id.notin_(hidden_subq))
 
         # 用户文章隔离：未指定 mp_id 时，只显示当前用户订阅的公众号文章
         # 但当 only_favorite=True 时跳过订阅过滤，因为 UserFavorite JOIN
@@ -470,6 +507,16 @@ async def get_articles(
             ).all()
             favorited_article_ids = {r.article_id for r in fav_records}
 
+        # 批量查询当前用户的阅读状态（按用户隔离）
+        from core.models.user_read_article import UserReadArticle
+        read_article_ids = set()
+        if uid and results:
+            read_records = session.query(UserReadArticle).filter(
+                UserReadArticle.user_id == uid,
+                UserReadArticle.article_id.in_(article_ids)
+            ).all()
+            read_article_ids = {r.article_id for r in read_records}
+
         # 合并公众号名称到文章列表
         article_list = []
         for result in results:
@@ -478,6 +525,7 @@ async def get_articles(
             article_dict = article.__dict__.copy()
             article_dict["mp_name"] = mp_names.get(article.mp_id, "未知公众号")
             article_dict["is_favorite"] = 1 if article.id in favorited_article_ids else 0
+            article_dict["is_read"] = 1 if article.id in read_article_ids else 0
             article_dict["has_content"] = has_content_val
             article_list.append(article_dict)
         
@@ -595,7 +643,7 @@ def get_article_detail(
                 clear_cache_pattern("home_page")
                 clear_cache_pattern("tag_detail")
         result = fix_article(article)
-        # 如果已登录，从 UserFavorite 表查询当前用户的收藏状态
+        # 如果已登录，从关联表查询当前用户的收藏和阅读状态（按用户隔离）
         if current_user:
             user_id = current_user.get("username")
             if not user_id:
@@ -609,6 +657,13 @@ def get_article_detail(
                     UserFavorite.article_id == article_id
                 ).first()
                 result["is_favorite"] = 1 if fav else 0
+
+                from core.models.user_read_article import UserReadArticle
+                read = session.query(UserReadArticle).filter(
+                    UserReadArticle.user_id == user_id,
+                    UserReadArticle.article_id == article_id
+                ).first()
+                result["is_read"] = 1 if read else 0
         return success_response(result)
     except HTTPException as e:
         raise e
@@ -621,15 +676,15 @@ def get_article_detail(
             )
         )   
 
-@router.delete("/{article_id}", summary="删除文章")
+@router.delete("/{article_id}", summary="删除文章（仅对当前用户隐藏）")
 async def delete_article(
     article_id: str,
     current_user: dict = Depends(get_current_user_or_ak)
 ):
     session = DB.get_session()
     try:
-        from core.models.article import Article
-        
+        from core.models.user_hidden_article import UserHiddenArticle
+
         # 检查文章是否存在
         article = session.query(Article).filter(Article.id == article_id).first()
         if not article:
@@ -640,20 +695,39 @@ async def delete_article(
                     message="文章不存在"
                 )
             )
-        # 逻辑删除文章（更新状态为deleted）
-        article.status = DATA_STATUS.DELETED
-        if cfg.get("article.true_delete", False):
-            session.delete(article)
+
+        # 获取当前用户ID
+        user_id = current_user.get("username")
+        if not user_id:
+            ou = current_user.get("original_user")
+            if ou:
+                user_id = ou.username
+        if not user_id:
+            raise HTTPException(
+                status_code=fast_status.HTTP_401_UNAUTHORIZED,
+                detail=error_response(code=40101, message="无法识别用户身份")
+            )
+
+        # 按用户隐藏文章（不修改全局 article.status），其他用户仍可见
+        existing = session.query(UserHiddenArticle).filter(
+            UserHiddenArticle.user_id == user_id,
+            UserHiddenArticle.article_id == article_id
+        ).first()
+        if not existing:
+            session.add(UserHiddenArticle(
+                user_id=user_id,
+                article_id=article_id
+            ))
+
         session.commit()
-        
-        return success_response(None, message="文章已标记为删除")
+        return success_response(None, message="文章已隐藏")
     except Exception as e:
         session.rollback()
         raise HTTPException(
             status_code=fast_status.HTTP_406_NOT_ACCEPTABLE,
             detail=error_response(
                 code=50001,
-                message=f"删除文章失败: {str(e)}"
+                message=f"隐藏文章失败: {str(e)}"
             )
         )
 
@@ -675,15 +749,30 @@ def get_next_article(
                     message="当前文章不存在"
                 )
             )
-        
+
+        # 获取当前用户ID（用于后续的用户隔离过滤）
+        user_id = current_user.get("username")
+        if not user_id:
+            ou = current_user.get("original_user")
+            if ou:
+                user_id = ou.username
+
+        # 排除当前用户已隐藏的文章
+        if user_id:
+            from core.models.user_hidden_article import UserHiddenArticle
+            hidden_subq = session.query(UserHiddenArticle.article_id).filter(
+                UserHiddenArticle.user_id == user_id
+            ).subquery()
+
         # 查询发布时间更晚的第一篇文章
-        next_article = session.query(Article)\
+        query = session.query(Article)\
             .filter(Article.publish_time > current_article.publish_time)\
             .filter(Article.status != DATA_STATUS.DELETED)\
-            .filter(Article.mp_id == current_article.mp_id)\
-            .order_by(Article.publish_time.asc())\
-            .first()
-        
+            .filter(Article.mp_id == current_article.mp_id)
+        if user_id:
+            query = query.filter(Article.id.notin_(hidden_subq))
+        next_article = query.order_by(Article.publish_time.asc()).first()
+
         if not next_article:
             raise HTTPException(
                 status_code=fast_status.HTTP_406_NOT_ACCEPTABLE,
@@ -703,7 +792,16 @@ def get_next_article(
                 clear_cache_pattern("article_detail")
                 clear_cache_pattern("home_page")
                 clear_cache_pattern("tag_detail")
-        return success_response(fix_article(next_article))
+        result = fix_article(next_article)
+        # 覆盖为当前用户的阅读状态（按用户隔离）
+        if user_id:
+            from core.models.user_read_article import UserReadArticle
+            read = session.query(UserReadArticle).filter(
+                UserReadArticle.user_id == user_id,
+                UserReadArticle.article_id == next_article.id
+            ).first()
+            result["is_read"] = 1 if read else 0
+        return success_response(result)
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -733,15 +831,30 @@ def get_prev_article(
                     message="当前文章不存在"
                 )
             )
-        
+
+        # 获取当前用户ID
+        user_id = current_user.get("username")
+        if not user_id:
+            ou = current_user.get("original_user")
+            if ou:
+                user_id = ou.username
+
+        # 排除当前用户已隐藏的文章
+        if user_id:
+            from core.models.user_hidden_article import UserHiddenArticle
+            hidden_subq = session.query(UserHiddenArticle.article_id).filter(
+                UserHiddenArticle.user_id == user_id
+            ).subquery()
+
         # 查询发布时间更早的第一篇文章
-        prev_article = session.query(Article)\
+        query = session.query(Article)\
             .filter(Article.publish_time < current_article.publish_time)\
             .filter(Article.status != DATA_STATUS.DELETED)\
-            .filter(Article.mp_id == current_article.mp_id)\
-            .order_by(Article.publish_time.desc())\
-            .first()
-        
+            .filter(Article.mp_id == current_article.mp_id)
+        if user_id:
+            query = query.filter(Article.id.notin_(hidden_subq))
+        prev_article = query.order_by(Article.publish_time.desc()).first()
+
         if not prev_article:
             raise HTTPException(
                 status_code=fast_status.HTTP_406_NOT_ACCEPTABLE,
@@ -761,7 +874,16 @@ def get_prev_article(
                 clear_cache_pattern("article_detail")
                 clear_cache_pattern("home_page")
                 clear_cache_pattern("tag_detail")
-        return success_response(fix_article(prev_article))
+        result = fix_article(prev_article)
+        # 覆盖为当前用户的阅读状态
+        if user_id:
+            from core.models.user_read_article import UserReadArticle
+            read = session.query(UserReadArticle).filter(
+                UserReadArticle.user_id == user_id,
+                UserReadArticle.article_id == prev_article.id
+            ).first()
+            result["is_read"] = 1 if read else 0
+        return success_response(result)
     except HTTPException as e:
         raise e
     except Exception as e:

@@ -28,3 +28,7 @@ from .ai_report_history import AIReportHistory
 from .user_feed import UserFeed
 # 导入用户文章收藏关联模型
 from .user_favorite import UserFavorite
+# 导入用户文章阅读状态关联模型
+from .user_read_article import UserReadArticle
+# 导入用户文章隐藏关联模型
+from .user_hidden_article import UserHiddenArticle
