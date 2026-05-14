@@ -24,3 +24,5 @@ from .base import *
 from .folder import Folder, FolderFeed
 # 导入AI报告历史模型
 from .ai_report_history import AIReportHistory
+# 导入用户-公众号订阅关联模型
+from .user_feed import UserFeed

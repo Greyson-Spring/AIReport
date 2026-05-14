@@ -152,26 +152,16 @@ async def delete_folder(
         if not folder:
             raise HTTPException(status_code=404, detail="文件夹不存在")
         
-        # 2. 获取该文件夹内所有公众号的 feed_id
-        feed_ids = session.query(FolderFeed.feed_id).filter(
-            FolderFeed.folder_id == folder_id
-        ).all()
-        feed_ids = [f[0] for f in feed_ids]  # 转换为普通列表
-        
-        # 3. 删除这些公众号（如果有的话）
-        if feed_ids:
-            session.query(Feed).filter(Feed.id.in_(feed_ids)).delete(synchronize_session=False)
-        
-        # 4. 删除文件夹与公众号的关联记录
+        # 2. 删除文件夹与公众号的关联记录（公众号本身是共享资源，不删除）
         session.query(FolderFeed).filter(FolderFeed.folder_id == folder_id).delete()
-        
-        # 5. 删除文件夹本身
+
+        # 3. 删除文件夹本身
         session.delete(folder)
-        
+
         session.commit()
         return {
             "code": 0,
-            "message": f"已删除文件夹及其中的 {len(feed_ids)} 个公众号"
+            "message": "文件夹已删除"
         }
         
     except HTTPException:
@@ -182,44 +172,6 @@ async def delete_folder(
     finally:
         session.close()
 
-# @router.delete("/{folder_id}", summary="删除文件夹")
-# async def delete_folder(
-#     folder_id: int,
-#     current_user: dict = Depends(get_current_user)
-# ):
-#     """删除文件夹"""
-#     session = DB.get_session()
-#     try:
-#         user_id = current_user.get("original_user").id
-        
-#         folder = session.query(Folder).filter(
-#             Folder.id == folder_id,
-#             Folder.user_id == user_id
-#         ).first()
-        
-#         if not folder:
-#             raise HTTPException(status_code=404, detail="文件夹不存在")
-        
-#         # 删除关联的公众号
-#         session.query(FolderFeed).filter(
-#             FolderFeed.folder_id == folder_id
-#         ).delete()
-        
-#         session.delete(folder)
-#         session.commit()
-        
-#         return {
-#             "code": 0,
-#             "message": "删除成功"
-#         }
-        
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         session.rollback()
-#         raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
-#     finally:
-#         session.close()
 
 
 
@@ -312,27 +264,43 @@ async def get_feeds_in_folder(
             Folder.id == folder_id,
             Folder.user_id == user_id
         ).first()
-        
+
         if not folder:
             raise HTTPException(status_code=404, detail="文件夹不存在")
-        
-        # 2. 查询关联的公众号
+
+        # 获取 username（UserFeed.user_id 用 username，与文件夹的 user_id 不同）
+        uf_user_id = current_user.get("username")
+        if not uf_user_id:
+            ou = current_user.get("original_user")
+            if ou:
+                uf_user_id = ou.username
+
+        # 2. 查询关联的公众号及用户订阅状态
         # 注意：Feed 表的字段名是 mp_name 和 mp_cover，不是 name 和 avatar
-        results = session.query(FolderFeed, Feed).join(
+        from core.models.user_feed import UserFeed
+        from sqlalchemy import and_
+        results = session.query(FolderFeed, Feed, UserFeed).join(
             Feed, FolderFeed.feed_id == Feed.id
+        ).outerjoin(
+            UserFeed, and_(
+                UserFeed.feed_id == Feed.id,
+                UserFeed.user_id == uf_user_id
+            )
         ).filter(
             FolderFeed.folder_id == folder_id
         ).all()
-        
+
         # 3. 构建返回数据
         feeds = []
-        for relation, feed in results:
+        for relation, feed, user_feed in results:
+            # 用户级别状态：有 UserFeed 时取 UserFeed.status，否则取 Feed.status
+            effective_status = user_feed.status if user_feed else feed.status
             feeds.append({
                 "id": feed.id,
                 "name": feed.mp_name,           # 字段名是 mp_name
                 "avatar": feed.mp_cover or "",  # 字段名是 mp_cover
                 "description": feed.mp_intro or "",
-                "status": feed.status 
+                "status": effective_status
             })
         
         return {

@@ -15,6 +15,14 @@ if __name__ == '__main__':
     if cfg.args.init=="True":
         import init_sys as init
         init.init()
+
+    # 执行 user_feeds 迁移（幂等）
+    try:
+        from fix_migrate_feeds import run_migration
+        run_migration()
+    except Exception as e:
+        print_warning(f"user_feeds 迁移失败: {str(e)}")
+
     start_auth_service()
     # 启动级联同步服务（如果配置为子节点）
     cascade_service_started = False

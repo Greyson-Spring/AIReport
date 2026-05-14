@@ -289,8 +289,8 @@ async def get_articles(
 ):
     session = DB.get_session()
     try:
-        from sqlalchemy import case, func
-        
+        from sqlalchemy import case, func, or_, and_, false
+
         # 构建查询条件 - 使用 ArticleBase 并通过 case 表达式判断是否有正文
         # 避免加载大量 content 数据
         query = session.query(
@@ -304,8 +304,64 @@ async def get_articles(
             query = query.filter(ArticleBase.status == status)
         else:
             query = query.filter(ArticleBase.status != DATA_STATUS.DELETED)
+
+        # 用户文章隔离：未指定 mp_id 时，只显示当前用户订阅的公众号文章
+        if not mp_id:
+            from core.models.user_feed import UserFeed
+            user_id = current_user.get("username")
+            if not user_id:
+                original_user = current_user.get("original_user")
+                if original_user:
+                    user_id = original_user.username
+            if user_id:
+                subscriptions = session.query(UserFeed).filter(
+                    UserFeed.user_id == user_id
+                ).all()
+                if subscriptions:
+                    feed_filters = []
+                    for sub in subscriptions:
+                        if sub.status == 1:
+                            # 启用状态：显示该公众号全部文章
+                            feed_filters.append(ArticleBase.mp_id == sub.feed_id)
+                        elif sub.status == 0 and sub.disabled_at is not None:
+                            # 停用状态：只显示停用时间之前已发布的文章
+                            disabled_ts = int(sub.disabled_at.timestamp())
+                            feed_filters.append(
+                                and_(
+                                    ArticleBase.mp_id == sub.feed_id,
+                                    ArticleBase.publish_time.isnot(None),
+                                    ArticleBase.publish_time <= disabled_ts
+                                )
+                            )
+                    if feed_filters:
+                        query = query.filter(or_(*feed_filters))
+                    else:
+                        # 没有可访问的订阅，返回空
+                        query = query.filter(false())
+                else:
+                    # 没有任何订阅
+                    query = query.filter(false())
+
         if mp_id:
             query = query.filter(ArticleBase.mp_id == mp_id)
+            # 指定公众号时也要尊重用户的停用状态
+            user_id = current_user.get("username")
+            if not user_id:
+                ou = current_user.get("original_user")
+                if ou:
+                    user_id = ou.username
+            if user_id:
+                from core.models.user_feed import UserFeed
+                uf = session.query(UserFeed).filter(
+                    UserFeed.user_id == user_id,
+                    UserFeed.feed_id == mp_id
+                ).first()
+                if uf and uf.status == 0 and uf.disabled_at is not None:
+                    disabled_ts = int(uf.disabled_at.timestamp())
+                    query = query.filter(
+                        ArticleBase.publish_time.isnot(None),
+                        ArticleBase.publish_time <= disabled_ts
+                    )
         if only_favorite:
             query = query.filter(ArticleBase.is_favorite == 1)
         if search:
