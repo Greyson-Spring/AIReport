@@ -29,7 +29,7 @@ export interface AIReportParams {
   model?: string
   mp_id?: string
   keyword?: string
-  source?: string      // 新增：all, favorite, folder
+  source?: string      // 新增：all, favorite, folder, mp
   folder_id?: number   // 新增：文件夹ID
 }
 
@@ -38,6 +38,7 @@ export interface AIReportPreviewResult {
   article_count: number
   date_range: string
   model: string
+  history_id?: number  // l历史记录ID
 }
 
 export const aiReportPreview = (params: AIReportParams): Promise<AIReportPreviewResult> => {
@@ -78,4 +79,21 @@ export interface AIQAResult {
 
 export const aiQA = (params: AIQAParams): Promise<AIQAResult> => {
   return http.post('/wx/ai/qa', params, { timeout: 120000 })
+}
+/**
+ * 导出历史报告（直接返回 Word 文件）
+ * @param historyId 历史记录ID
+ * @returns Blob 文件流
+ */
+export const exportHistoryReport = (historyId: number): Promise<Blob> => {
+  return http.get(`/wx/ai/history/export/${historyId}`, {
+    responseType: 'blob'
+  })
+}
+/**
+ * 删除历史报告
+ * @param historyId 历史记录ID
+ */
+export const deleteHistoryReport = (historyId: number): Promise<any> => {
+  return http.delete(`/wx/ai/history/${historyId}`)
 }

@@ -6,7 +6,8 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from fastapi.openapi.models import OAuthFlowPassword
 from fastapi.openapi.utils import get_openapi
-from apis.auth import router as auth_router
+# 导入各个模块
+from apis.auth import router as auth_router # 从 apis/auth.py 文件中导入 router 这个变量
 from apis.user import router as user_router
 from apis.article import router as article_router
 from apis.mps import router as wx_router
@@ -38,6 +39,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 class AKMiddleware(BaseHTTPMiddleware):
     """Access Key 认证中间件"""
+        # self → 实例自己（不需要你管，Python自动传）
+        # request → HTTP请求（浏览器发来的）
+        # call_next → "下一个处理环节"的函数
     async def dispatch(self, request: Request, call_next):
         # 提取 Authorization 头
         auth_header = request.headers.get("Authorization", "")
@@ -46,7 +50,7 @@ class AKMiddleware(BaseHTTPMiddleware):
             request.state.ak_auth = auth_header
         response = await call_next(request)
         return response
-
+# 创建 FastAPI 应用实例（整个后端的总机，所有请求来了就先找app）
 app = FastAPI(
     title="WeRSS API",
     description="微信公众号RSS生成服务API文档",
@@ -87,7 +91,7 @@ async def add_custom_header(request: Request, call_next):
     response.headers["GITHUB"] = "https://github.com/rachelos/we-mp-rss"
     response.headers["Server"] = cfg.get("app_name", "WeRSS")
     return response
-# 创建API路由分组
+# 创建API路由分组，把模块挂到总机上
 api_router = APIRouter(prefix=f"{API_BASE}")
 api_router.include_router(auth_router)
 api_router.include_router(user_router)
@@ -122,12 +126,13 @@ app.include_router(resource_router)
 app.include_router(feeds_router)
 app.include_router(views_router)
 
-# 静态文件服务配置
+# 静态文件服务配置，将静态文件目录挂载到指定路径
 app.mount("/assets", StaticFiles(directory="static/assets"), name="assets")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 from core.res.avatar import files_dir
 app.mount("/files", StaticFiles(directory=files_dir), name="files")
 # app.mount("/docs", StaticFiles(directory="./data/docs"), name="docs")
+# 兜底路由：所有其他路由都匹配不上时，最后试一次的保底路由
 @app.get("/{path:path}",tags=['默认'],include_in_schema=False)
 async def serve_vue_app(request: Request, path: str):
     """处理Vue应用路由"""

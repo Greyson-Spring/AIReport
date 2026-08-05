@@ -177,11 +177,11 @@
                 </div>
               </div>
               
-              <!-- ========== 3. 未归档公众号区域 ========== -->
+              <!-- ========== 3. 未分类公众号区域 ========== -->
               <div class="unassigned-section"
                   @dragover.prevent
                   @drop="onDropToUnassigned">
-                <div class="section-title">未归档公众号</div>
+                <div class="section-title">未分类公众号</div>
                 
                 <!-- 有公众号时显示列表 -->
                 <div v-if="unassignedMpList.length > 0">
@@ -498,9 +498,9 @@ const FEATURED_MP_ID = 'MP_WXS_FEATURED_ARTICLES'
 const FEATURED_MP_NAME = '精选文章'
 const loading = ref(false)
 // const mpList = ref([])
-const mpLoading = ref(false)
-const activeMpId = ref('')
-const activeFolderId = ref(null)  // 👈 添加这一行
+const mpLoading = ref(false)      // 公众号列表加载状态
+const activeMpId = ref('')        // 当前选中的公众号ID，''表示全部
+const activeFolderId = ref(null)  // 当前选中的文件夹ID
 const exportModal = ref()
 const aiSummaryModal = ref()
 
@@ -514,7 +514,7 @@ const systemItems = ref([
 // 2. 文件夹树（每个文件夹包含子公众号）
 const folderTree = ref([])
 
-// 3. 未归档的公众号列表
+// 3. 未分类的公众号列表
 const unassignedMpList = ref([])
 
 // 4. 当前选中的项
@@ -685,7 +685,7 @@ const buildLeftSidebarData = async (searchKeyword = '') => {
 
     // 4. 构建文件夹树
     const folderTreeData = []
-    const allArchivedFeedIds = new Set() // 记录所有已在文件夹中的公众号ID，用于排除未归档列表
+    const allArchivedFeedIds = new Set() // 记录所有已在文件夹中的公众号ID，用于排除未分类列表
 
     for (const folder of backendFolders) {
       // 4.1 获取该文件夹内的所有公众号
@@ -702,7 +702,7 @@ const buildLeftSidebarData = async (searchKeyword = '') => {
         console.error(`获取文件夹 ${folder.name} 内的公众号失败:`, error)
       }
 
-      //4.2记录这个文件夹内的所有公众号ID（用于构建未归档列表，不受筛选影响）
+      //4.2记录这个文件夹内的所有公众号ID（用于构建未分类列表，不受筛选影响）
       feedsInFolder.forEach(feed => {
         allArchivedFeedIds.add(feed.id)
       })
@@ -744,11 +744,11 @@ const buildLeftSidebarData = async (searchKeyword = '') => {
 
     folderTree.value = folderTreeData
 
-    // 5. 构建未归档公众号列表（不在任何文件夹中的公众号）
+    // 5. 构建未分类公众号列表（不在任何文件夹中的公众号）
     let unassigned = allFeeds.filter(feed => !allArchivedFeedIds.has(feed.id))
     console.log('过滤前的 unassigned 数量:', unassigned.length)
     console.log('过滤前的 unassigned 名称:', unassigned.map(f => f.name))
-    // ========== 5.1 根据搜索关键词过滤未归档公众号 ==========
+    // ========== 5.1 根据搜索关键词过滤未分类公众号 ==========
     if (searchKeyword) {
       unassigned = unassigned.filter(feed =>
         feed.name && feed.name.toLowerCase().includes(searchKeyword.toLowerCase())
@@ -844,7 +844,7 @@ const onDropToUnassigned = async (event) => {
   }
   
   if (!sourceFolderId) {
-    Message.info('公众号已在未归档区域')
+    Message.info('公众号已在未分类区域')
     return
   }
   
@@ -859,7 +859,7 @@ const onDropToUnassigned = async (event) => {
       if (index !== -1) folder.feeds.splice(index, 1)
     }
     
-    // 2. 添加到未归档列表（避免重复）
+    // 2. 添加到未分类列表（避免重复）
     if (sourceFeed && !unassignedMpList.value.some(f => f.id === feedId)) {
       unassignedMpList.value.push(sourceFeed)
     }
@@ -993,15 +993,8 @@ const fetchArticlesByFolder = async (folder) => {
 // ========= 获取文章列表 ==========
 
 
-
-
-
-
-
-
-
 const pagination = ref({
-  current: 1,
+  current: 1, // 当前页码
   pageSize: 10,
   total: 0,
   showTotal: true,
@@ -1338,7 +1331,7 @@ const rssFormat = ref('atom')
 const activeFeed = ref({
   id: "",
   name: "全部",
-})
+}) // 当前选中的公众号/文件夹/系统项对象，包含 id、name、mp_intro 等字段
 const canManageMp = (mpId: string) => mpId !== '' && mpId !== FEATURED_MP_ID
 
 const showAddFeaturedArticleModal = () => {
