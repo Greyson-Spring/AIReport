@@ -27,3 +27,13 @@ test.yaml
 .idea
 .travis
 test.py
+
+# 备份包，不要提交
+*.tar
+*.tar.gz
+
+# 前端编译产物（npm run build 生成）
+static/assets/
+
+# Claude Code 本地配置
+.claude/
