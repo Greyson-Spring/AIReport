@@ -37,3 +37,6 @@ static/assets/
 
 # Claude Code 本地配置
 .claude/
+
+# 敏感配置（含微信读书Cookie等凭证），不要提交
+.env

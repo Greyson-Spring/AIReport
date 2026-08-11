@@ -62,6 +62,9 @@ class WxGather:
         elif type=="web":
             from core.wx.model.web import MpsWeb
             wx=MpsWeb()
+        elif type=="weread_mp":
+            from core.wx.model.weread_mp import MpsWereadMP
+            wx=MpsWereadMP()
         else:
             from core.wx.model.api import MpsApi
             wx=MpsApi()
