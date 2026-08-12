@@ -121,6 +121,45 @@ def fetch_articles(book_id, offset=0):
     return text
 
 
+def click_element(text):
+    """在页面里点击包含指定文字的元素(用于触发扫码登录)"""
+    import json as _json
+    tab = find_reader_page()
+    if not tab:
+        try:
+            for t in get_tabs():
+                if t.get('type') == 'page':
+                    tab = t
+                    break
+        except Exception:
+            pass
+    if not tab:
+        return _json.dumps({'err': 'no page tab'})
+    ws_url = 'ws://localhost:9222/devtools/page/' + tab['id']
+    try:
+        ws = websocket.create_connection(ws_url, timeout=10)
+        ws.settimeout(10)
+        js = (
+            "(() => {"
+            "const t = " + _json.dumps(text) + ";"
+            "const els = [...document.querySelectorAll('*')].filter(e => e.children.length===0 && e.textContent.trim()===t);"
+            "if (els.length) { els[0].click(); return 'clicked: '+t; }"
+            "const els2 = [...document.querySelectorAll('*')].filter(e => e.children.length===0 && e.textContent.includes(t));"
+            "if (els2.length) { els2[0].click(); return 'clicked(contains): '+t; }"
+            "return 'not found: '+t;"
+            "})()"
+        )
+        ws.send(_json.dumps({'id': 1, 'method': 'Runtime.evaluate',
+                             'params': {'expression': js, 'returnByValue': True}}))
+        while True:
+            m = _json.loads(ws.recv())
+            if m.get('id') == 1:
+                ws.close()
+                return _json.dumps({'result': m.get('result', {}).get('result', {}).get('value')})
+    except Exception as e:
+        return _json.dumps({'err': str(e)})
+
+
 def capture_screenshot():
     """截取浏览器当前画面(用于微信读书扫码登录)"""
     import base64
@@ -185,6 +224,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/plain')
                 self.end_headers()
                 self.wfile.write(b'screenshot failed')
+        elif self.path.startswith('/click'):
+            from urllib.parse import urlparse, parse_qs
+            text = parse_qs(urlparse(self.path).query).get('text', ['扫码登录'])[0]
+            result = click_element(text)
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(result.encode('utf-8'))
         else:
             # 健康检查
             self.send_response(200)

@@ -8,6 +8,7 @@ cd "$(dirname "$0")"
 echo "[1/4] 启动虚拟显示器 Xvfb..."
 pkill -f "Xvfb :99" 2>/dev/null || true
 sleep 1
+rm -f /tmp/.X99-lock   # 清理锁文件, 防止Xvfb启动失败
 Xvfb :99 -screen 0 1280x900x24 >/dev/null 2>&1 &
 sleep 2
 export DISPLAY=:99
