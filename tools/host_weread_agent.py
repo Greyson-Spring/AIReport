@@ -121,6 +121,37 @@ def fetch_articles(book_id, offset=0):
     return text
 
 
+def capture_screenshot():
+    """截取浏览器当前画面(用于微信读书扫码登录)"""
+    import base64
+    tab = find_reader_page()
+    if not tab:
+        try:
+            for t in get_tabs():
+                if t.get('type') == 'page':
+                    tab = t
+                    break
+        except Exception:
+            pass
+    if not tab:
+        return None
+    ws_url = 'ws://localhost:9222/devtools/page/' + tab['id']
+    try:
+        ws = websocket.create_connection(ws_url, timeout=10)
+        ws.settimeout(10)
+        ws.send(json.dumps({'id': 1, 'method': 'Page.captureScreenshot',
+                            'params': {'format': 'png'}}))
+        while True:
+            msg = json.loads(ws.recv())
+            if msg.get('id') == 1:
+                data = msg.get('result', {}).get('data')
+                ws.close()
+                return base64.b64decode(data) if data else None
+    except Exception:
+        pass
+    return None
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
@@ -140,11 +171,26 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({'errCode': 'AGENT_ERROR', 'errMsg': str(e)}).encode('utf-8'))
 
     def do_GET(self):
-        # 健康检查
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/plain')
-        self.end_headers()
-        self.wfile.write(b'weread-agent ok')
+        if self.path.startswith('/qr'):
+            # 截取浏览器画面(微信读书登录二维码)返回给浏览器查看
+            img = capture_screenshot()
+            if img:
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/png')
+                self.send_header('Content-Length', str(len(img)))
+                self.end_headers()
+                self.wfile.write(img)
+            else:
+                self.send_response(500)
+                self.send_header('Content-Type', 'text/plain')
+                self.end_headers()
+                self.wfile.write(b'screenshot failed')
+        else:
+            # 健康检查
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'weread-agent ok')
 
     def log_message(self, fmt, *args):
         print('[weread-agent] ' + (fmt % args))

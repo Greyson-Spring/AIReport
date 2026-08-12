@@ -61,6 +61,8 @@ services:
       PROXY_HTTP_URL: http://singbox:7890
     ports:
       - "8001:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
     depends_on:
