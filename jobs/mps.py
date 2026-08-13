@@ -66,6 +66,9 @@ def do_job(mp=None,task:MessageTask=None,isTest=False):
                 count = 1
                 success = True
             else:
+                # 每个公众号之间加随机间隔, 防止连续请求触发微信读书限流(-2014)
+                import random
+                time.sleep(random.randint(3, 8))
                 wx=WxGather().Model()
                 try:
                     wx.get_Articles(mp.faker_id,CallBack=UpdateArticle,Mps_id=mp.id,Mps_title=mp.mp_name, MaxPage=1,Over_CallBack=Update_Over,interval=interval)
@@ -118,7 +121,12 @@ def do_job(mp=None,task:MessageTask=None,isTest=False):
         except Exception as e:
             error_msg = str(e)
             print_error(f"任务执行异常 [{mp.mp_name}]: {e}")
-            raise  # 重新抛出，让队列的重试机制处理
+            # 限流/登录类错误不重试: 重试会加重限制
+            _es = str(e)
+            if any(x in _es for x in ('-2014', '-2010', '-2012', '-2041', 'host_agent', 'frequency', 'frequenc')):
+                print_warning(f"限流/登录类错误, 跳过重试: {_es[:80]}")
+            else:
+                raise  # 其他错误才交给队列重试
         
         finally:
             # 记录执行结果到追踪器
