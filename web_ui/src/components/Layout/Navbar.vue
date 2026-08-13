@@ -29,7 +29,7 @@ import { ref, computed, watchEffect, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   IconWechat, IconExport, IconTag, IconNotification, IconFilter,
-  IconList, IconStorage, IconShareExternal, IconLock, IconBook,
+  IconList, IconStorage, IconShareExternal, IconLock,
   IconExclamationCircle, IconRobot, IconSettings, IconInfoCircle, IconUser, IconMessage
 } from '@arco-design/web-vue/es/icon'
 import TextIcon from '@/components/TextIcon.vue'
@@ -38,7 +38,6 @@ import { useUserPermissions } from '@/composables/useUserPermissions'
 // 所有菜单项定义（不含订阅管理）
 const allMenus = [
   { key: '/wechat-status', label: '授权管理', icon: IconWechat },
-  { key: '/weread', label: '微信读书', icon: IconBook },
   { key: '/export/records', label: '导出记录', icon: IconExport },
   { key: '/tags', label: '标签管理', icon: IconTag },
   { key: '/message-tasks', label: '消息任务', icon: IconNotification },

@@ -184,9 +184,9 @@
                 <div class="section-title">未分类公众号</div>
                 
                 <!-- 有公众号时显示列表 -->
-                <div v-if="unassignedMpList.length > 0">
-                  <div 
-                    v-for="mp in unassignedMpList" 
+                <div v-if="pagedUnassignedMpList.length > 0">
+                  <div
+                    v-for="mp in pagedUnassignedMpList"
                     :key="mp.id"
                     class="list-item"
                     :class="{ active: activeItem.type === 'mp' && activeItem.id === mp.id }"
@@ -221,14 +221,14 @@
                   <span>拖拽公众号到此可移出文件夹</span>
                 </div>
               </div>
-              <!-- 分页（如果还需要的话） -->
-              <a-pagination 
-                v-if="false"
-                :total="mpPagination.total" 
-                simple 
-                @change="handleMpPageChange" 
+              <!-- 未分类公众号分页 -->
+              <a-pagination
+                :total="mpPagination.total"
+                :current="mpPagination.current"
+                :page-size="mpPagination.pageSize"
+                @change="handleMpPageChange"
                 :show-total="true"
-                style="margin-top: 1rem;" 
+                style="margin-top: 1rem; padding: 0 8px;"
               />
               
             </div>
@@ -536,6 +536,11 @@ const mpPagination = ref({
   pageSizeOptions: [5, 10, 15]
 })
 const mpFilterType = ref('all') // 'active' | 'disabled' | 'all'
+// 未分类公众号分页显示(按当前页截取)
+const pagedUnassignedMpList = computed(() => {
+  const start = (mpPagination.value.current - 1) * mpPagination.value.pageSize
+  return unassignedMpList.value.slice(start, start + mpPagination.value.pageSize)
+})
 const searchText = ref('')
 const filterStatus = ref('')
 const mpSearchText = ref('')
@@ -762,10 +767,11 @@ const buildLeftSidebarData = async (searchKeyword = '') => {
       name: feed.name || feed.mp_name,
       type: 'mp',
       avatar: feed.avatar || feed.mp_cover || '',
-      status: feed.status  
+      status: feed.status
     }))
-    // 👇 放在这里，查看赋值后的结果
-    console.log('unassignedMpList:', unassignedMpList.value.map(mp => mp.name))
+    // 更新未分类公众号分页
+    mpPagination.value.total = unassignedMpList.value.length
+    mpPagination.value.current = 1
 
     console.log('左侧数据构建完成:', {
       folders: folderTree.value.length,
@@ -1303,8 +1309,6 @@ const columns = computed(() => {
 const handleMpPageChange = (page: number, pageSize: number) => {
   mpPagination.value.current = page
   mpPagination.value.pageSize = pageSize
-  // fetchMpList()
-  console.log('分页功能暂未实现，等待后续优化')
 }
 
 const handleMpSearch = () => {
