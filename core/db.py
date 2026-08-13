@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, Engine,Text,event, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base,scoped_session
 from sqlalchemy import Column, Integer, String, DateTime
 from typing import Optional, List
-from .models import Feed, Article
+from .models import Feed, Article, UserFeed
 from .config import cfg
 from core.models.base import Base  
 from core.print import print_warning,print_info,print_error,print_success
@@ -194,9 +194,12 @@ class Db:
             return e # type: ignore   
              
     def get_all_mps(self) -> List[Feed]:
-        """Get all Feed records"""
+        """Get all Feed records that have at least one active user subscription
+        (只返回有人订阅的号, 避免孤儿号占用微信读书限流配额)"""
         try:
-            return self.get_session().query(Feed).all()
+            session = self.get_session()
+            sub_ids = session.query(UserFeed.feed_id).filter(UserFeed.status == 1).distinct()
+            return session.query(Feed).filter(Feed.id.in_(sub_ids)).all()
         except Exception as e:
             print(f"Failed to fetch Feed: {e}")
             return e
