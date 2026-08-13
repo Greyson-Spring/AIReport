@@ -9,22 +9,25 @@ echo "[1/4] 启动虚拟显示器 Xvfb..."
 pkill -f "Xvfb :99" 2>/dev/null || true
 sleep 1
 rm -f /tmp/.X99-lock   # 清理锁文件, 防止Xvfb启动失败
-Xvfb :99 -screen 0 1280x900x24 >/dev/null 2>&1 &
+nohup Xvfb :99 -screen 0 1280x900x24 >/tmp/xvfb.log 2>&1 &
+disown
 sleep 2
 export DISPLAY=:99
 
 echo "[2/4] 启动 Chrome (调试口9222, 打开微信读书登录页)..."
 pkill -f "remote-debugging-port=9222" 2>/dev/null || true
 sleep 1
-google-chrome --remote-debugging-port=9222 --remote-allow-origins=* \
+nohup google-chrome --remote-debugging-port=9222 --remote-allow-origins=* \
   --user-data-dir="$HOME/.weread-chrome" --no-sandbox --disable-dev-shm-usage \
-  "https://weread.qq.com/" >/dev/null 2>&1 &
+  "https://weread.qq.com/" >/tmp/chrome.log 2>&1 &
+disown
 sleep 6
 
 echo "[3/4] 启动宿主机代理 (端口9000)..."
 pkill -f "host_weread_agent.py" 2>/dev/null || true
 sleep 1
-python3 host_weread_agent.py >/tmp/weread_agent.log 2>&1 &
+nohup python3 host_weread_agent.py >/tmp/weread_agent.log 2>&1 &
+disown
 sleep 2
 
 echo "[4/4] ✅ 启动完成!"

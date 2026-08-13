@@ -1,0 +1,13 @@
+[Unit]
+Description=WeRead host collector agent (Xvfb + Chrome + agent)
+After=network.target
+
+[Service]
+Type=simple
+User=appadmin
+ExecStart=/home/appadmin/AIReport/tools/server_run_agent.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
