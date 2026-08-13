@@ -129,16 +129,19 @@
                     >
                       {{ folder.name }}
                     </span>
-                    <!-- 删除按钮（放在计数前面）：只在选中且非编辑状态时显示 -->
-                    <a-button 
-                      v-if="activeItem.type === 'folder' && activeItem.id === folder.id && !folder.isEditing"
-                      size="mini" 
-                      type="text" 
-                      status="danger" 
-                      @click.stop="confirmDeleteFolder(folder)"
-                    >
-                      <template #icon><icon-delete /></template>
-                    </a-button>
+                    <!-- 删除按钮(固定宽度占位, 选中时显示, 不改变行高) -->
+                    <span style="width: 24px; display: inline-flex; justify-content: center; flex-shrink: 0;">
+                      <a-button
+                        v-if="activeItem.type === 'folder' && activeItem.id === folder.id && !folder.isEditing"
+                        size="mini"
+                        type="text"
+                        status="danger"
+                        @click.stop="confirmDeleteFolder(folder)"
+                        style="height: 20px; padding: 0 4px;"
+                      >
+                        <template #icon><icon-delete /></template>
+                      </a-button>
+                    </span>
                     <!-- 数量显示：只在非编辑状态下显示 -->
                     <span  v-if="!folder.isEditing" class="item-count">({{ folder.feeds.length }})</span>
                   </div>
@@ -1327,6 +1330,10 @@ const handleMpPageChange = (page: number, pageSize?: number) => {
 // ===== 文件夹内部分页 (每页5个) =====
 const folderPageMap = ref<Record<string, number>>({})
 const getFolderPagedFeeds = (folder: any) => {
+  // 搜索时显示全部匹配(不截断), 避免匹配的号被分页藏起来
+  if (mpSearchText.value.trim()) {
+    return folder.feeds || []
+  }
   const page = folderPageMap.value[folder.id] || 1
   const size = 5
   const start = (page - 1) * size
