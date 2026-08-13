@@ -143,10 +143,10 @@
                     <span  v-if="!folder.isEditing" class="item-count">({{ folder.feeds.length }})</span>
                   </div>
                   
-                  <!-- 文件夹内的公众号列表 -->
+                  <!-- 文件夹内的公众号列表(每页5个) -->
                   <div v-if="folder.expanded" class="folder-children">
-                    <div 
-                      v-for="feed in folder.feeds" 
+                    <div
+                      v-for="feed in getFolderPagedFeeds(folder)"
                       :key="feed.id"
                       class="list-item"
                       :class="{ active: activeItem.type === 'mp' && activeItem.id === feed.id }"
@@ -173,10 +173,20 @@
                         </a-button>
                       </div>
                     </div>
+                    <!-- 文件夹内部分页(每页5个) -->
+                    <a-pagination
+                      v-if="folder.feeds.length > 5"
+                      :total="folder.feeds.length"
+                      :current="folderPageMap[folder.id] || 1"
+                      :page-size="5"
+                      simple
+                      @change="(page: number) => handleFolderPageChange(folder.id, page)"
+                      style="margin: 8px 0 8px 24px;"
+                    />
                   </div>
                 </div>
               </div>
-              
+
               <!-- ========== 3. 未分类公众号区域 ========== -->
               <div class="unassigned-section"
                   @dragover.prevent
@@ -1306,9 +1316,24 @@ const columns = computed(() => {
   return allColumns.filter(col => visibleColumns.value.includes(col.dataIndex as string))
 })
 
-const handleMpPageChange = (page: number, pageSize: number) => {
+const handleMpPageChange = (page: number, pageSize?: number) => {
   mpPagination.value.current = page
-  mpPagination.value.pageSize = pageSize
+  // 防御: 某些情况下 pageSize 可能没传, 避免 slice(NaN) 导致列表为空
+  if (pageSize && pageSize > 0) {
+    mpPagination.value.pageSize = pageSize
+  }
+}
+
+// ===== 文件夹内部分页 (每页5个) =====
+const folderPageMap = ref<Record<string, number>>({})
+const getFolderPagedFeeds = (folder: any) => {
+  const page = folderPageMap.value[folder.id] || 1
+  const size = 5
+  const start = (page - 1) * size
+  return (folder.feeds || []).slice(start, start + size)
+}
+const handleFolderPageChange = (folderId: number, page: number) => {
+  folderPageMap.value[folderId] = page
 }
 
 const handleMpSearch = () => {
