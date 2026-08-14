@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { getAccountPoolStatus, addAccount, refreshAccountQr, removeAccount } from '@/api/accountPool'
 
@@ -133,9 +133,9 @@ const qrUrl = (port: number) => {
 const loadStatus = async () => {
   loading.value = true
   try {
+    // http拦截器已自动解包, res 直接就是账号状态对象 {port: {...}}
     const res: any = await getAccountPoolStatus()
-    const data = res?.data?.data || res?.data || {}
-    // 转成数组
+    const data = res?.data || res || {}
     accounts.value = Object.keys(data).map(k => data[k])
   } catch (e: any) {
     Message.error('获取账号池状态失败: ' + (e?.message || e))
@@ -146,13 +146,14 @@ const loadStatus = async () => {
 
 const handleAdd = async () => {
   try {
+    // http拦截器已解包, res 直接就是 {port:N, profile:...}
     const res: any = await addAccount()
-    const data = res?.data?.data || res?.data || {}
-    if (data.err) {
-      Message.error('添加失败: ' + data.err)
+    const port = res?.port
+    if (!port) {
+      Message.error('添加失败: 未获取到端口 ' + JSON.stringify(res))
       return
     }
-    lastAddedPort.value = data.port
+    lastAddedPort.value = port
     addModalVisible.value = true
     qrVersion.value++  // 加载一次二维码(接口内部会导航+点登录确保新鲜)
     qrLoading.value = true  // 显示"正在生成二维码"提示
