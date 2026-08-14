@@ -229,6 +229,34 @@ def click_element(port, text):
     except Exception as e:
         return _json.dumps({'err': str(e)})
 
+def ensure_login_qr(port):
+    """确保某账号Chrome显示微信读书登录二维码, 返回新鲜截图
+    (先导航到微信读书首页, 点登录打开二维码, 等待后截图)"""
+    # 1. 若页面不是weread, 导航到首页
+    try:
+        found = False
+        for t in get_tabs(port):
+            if t.get('type') == 'page':
+                found = True
+                if 'weread.qq.com' not in (t.get('url') or ''):
+                    navigate_page(port, 'https://weread.qq.com/')
+                break
+        if not found:
+            navigate_page(port, 'https://weread.qq.com/')
+    except Exception:
+        pass
+    # 2. 点"登录"打开二维码弹窗(重试直到截到有内容的画面)
+    last_img = None
+    for _ in range(3):
+        click_element(port, '登录')
+        time.sleep(5)  # 等二维码加载
+        last_img = capture_screenshot(port)
+        if last_img and len(last_img) > 20000:
+            break  # 有实际内容(二维码/登录页), 返回
+    # 3. 返回截图(可能是二维码, 也可能是登录页, 前端每3秒刷新可再次触发)
+    return last_img
+
+
 def capture_screenshot(port):
     import base64
     tab = find_reader_page(port) or find_any_page(port)
@@ -362,9 +390,9 @@ class Handler(BaseHTTPRequestHandler):
                 result[str(port)] = st
             self._json_result(result)
         elif self.path.startswith('/qr'):
-            # 截取某账号Chrome的画面(登录二维码), ?port=9222
+            # 确保某账号Chrome显示新鲜登录二维码并截图, ?port=9222
             port = int(qs.get('port', [CHROME_PORTS[0]])[0])
-            img = capture_screenshot(port)
+            img = ensure_login_qr(port)
             if img:
                 self.send_response(200)
                 self.send_header('Content-Type', 'image/png')

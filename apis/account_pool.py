@@ -61,23 +61,8 @@ async def account_add(current_user: dict = Depends(get_current_user_or_ak)):
         result = _agent_post("/spawn", {})
         if result.get('err'):
             return error_response(code=50002, message=f"启动Chrome失败: {result['err']}")
-        port = result.get('port')
-        if port:
-            import time
-            # 1. 导航到微信读书首页(刷新拿新二维码)
-            try:
-                _agent_get(f"/navigate?port={port}&url={urllib.parse.quote('https://weread.qq.com/')}")
-            except Exception:
-                pass
-            # 2. 点"登录"让二维码显示(重试2轮)
-            for _round in range(2):
-                for text in ['登录', '扫码登录', '微信登录']:
-                    try:
-                        _agent_get(f"/click?port={port}&text={urllib.parse.quote(text)}")
-                    except Exception:
-                        pass
-                time.sleep(4)
-        return success_response(data=result, message="账号已启动, 请尽快扫码登录")
+        # 只启动Chrome并返回端口; 二维码由 /qr 接口(ensure_login_qr)负责展示
+        return success_response(data=result, message="账号已启动, 正在加载二维码")
     except Exception as e:
         return error_response(code=50001, message=f"添加失败(确认代理已启动): {e}")
 

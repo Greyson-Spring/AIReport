@@ -87,7 +87,6 @@ const accounts = ref<any[]>([])
 const addModalVisible = ref(false)
 const lastAddedPort = ref<number | null>(null)
 const qrVersion = ref(0)
-let qrTimer: any = null
 
 // 错误码 → 解决方法
 const solutions: Record<string, string> = {
@@ -145,22 +144,12 @@ const handleAdd = async () => {
     }
     lastAddedPort.value = data.port
     addModalVisible.value = true
-    // 每3秒刷新二维码, 直到微信读书页面加载出二维码
-    if (qrTimer) clearInterval(qrTimer)
-    qrTimer = setInterval(() => { qrVersion.value++ }, 3000)
+    qrVersion.value++  // 加载一次二维码(接口内部会导航+点登录确保新鲜)
     loadStatus()
   } catch (e: any) {
     Message.error('添加失败: ' + (e?.message || e))
   }
 }
-
-// 弹窗关闭时停止二维码刷新
-watch(addModalVisible, (v) => {
-  if (!v && qrTimer) {
-    clearInterval(qrTimer)
-    qrTimer = null
-  }
-})
 
 const handleRefreshQr = async () => {
   if (!lastAddedPort.value) return
