@@ -253,11 +253,29 @@ def spawn_chrome(port=None):
     cmd = [chrome, f'--remote-debugging-port={port}', '--remote-allow-origins=*',
            f'--user-data-dir={profile}', '--no-sandbox', '--disable-dev-shm-usage',
            'https://weread.qq.com/']
-    try:
-        subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e:
-        return {'err': str(e)}
-    time.sleep(6)
+    # 启动并验证Chrome真的初始化了(重试3次)
+    last = None
+    for attempt in range(3):
+        try:
+            subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as e:
+            return {'err': str(e)}
+        time.sleep(8)
+        if check_chrome_alive(port):
+            last = 'ok'
+            break
+        # 没起来: 杀进程删配置重试(可能是损坏的profile)
+        try:
+            subprocess.run(['pkill', '-f', f'remote-debugging-port={port}'],
+                           capture_output=True, timeout=5)
+        except Exception:
+            pass
+        time.sleep(2)
+        if os.path.exists(profile):
+            import shutil as _sh
+            _sh.rmtree(profile, ignore_errors=True)
+    if last != 'ok':
+        return {'err': f'Chrome启动失败(端口{port}), 已重试3次'}
     if port not in CHROME_PORTS:
         CHROME_PORTS.append(port)
         ACCOUNT_STATUS[port] = {'status': 'unknown', 'last_error': '',
