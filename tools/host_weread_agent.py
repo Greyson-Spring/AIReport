@@ -155,8 +155,8 @@ def record_error(port, text):
     except Exception:
         pass
 
-def fetch_articles(book_id, offset=0):
-    port = pick_port(book_id)
+def fetch_articles(book_id, offset=0, port_override=None):
+    port = port_override or pick_port(book_id)
     if port is None:
         return json.dumps({'errCode': 'NO_ACCOUNT', 'errMsg': '没有配置任何账号'})
     text, tab = _do_fetch(book_id, offset, port)
@@ -378,7 +378,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 book_id = str(body.get('book_id', ''))
                 offset = int(body.get('offset', 0))
-                result = fetch_articles(book_id, offset)
+                port_override = int(body['port']) if body.get('port') else None
+                result = fetch_articles(book_id, offset, port_override)
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.end_headers()
