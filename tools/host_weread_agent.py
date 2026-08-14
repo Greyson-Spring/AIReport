@@ -175,6 +175,31 @@ def fetch_articles(book_id, offset=0):
     record_error(port, text)
     return text
 
+def navigate_page(port, url):
+    """导航某个账号的Chrome到指定URL(用于刷新登录页拿新二维码)"""
+    tab = find_reader_page(port) or find_any_page(port)
+    if not tab:
+        try:
+            u = cdp_base(port) + '/json/new?' + urllib.parse.quote(url, safe='')
+            req = urllib.request.Request(u, method='PUT')
+            req.add_header('Host', host_header(port))
+            tab = json.loads(urllib.request.urlopen(req, timeout=8).read())
+            time.sleep(8)
+            return {'ok': True, 'url': url, 'opened': True}
+        except Exception as e:
+            return {'err': str(e)}
+    try:
+        ws_url = f'ws://localhost:{port}/devtools/page/' + tab['id']
+        ws = websocket.create_connection(ws_url, timeout=10)
+        ws.settimeout(10)
+        ws.send(json.dumps({'id': 1, 'method': 'Page.navigate', 'params': {'url': url}}))
+        time.sleep(8)  # 等页面加载
+        ws.close()
+        return {'ok': True, 'url': url}
+    except Exception as e:
+        return {'err': str(e)}
+
+
 def click_element(port, text):
     import json as _json
     tab = find_reader_page(port) or find_any_page(port)
@@ -351,6 +376,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/plain')
                 self.end_headers()
                 self.wfile.write(b'screenshot failed')
+        elif self.path.startswith('/navigate'):
+            port = int(qs.get('port', [CHROME_PORTS[0]])[0])
+            url = qs.get('url', ['https://weread.qq.com/'])[0]
+            self._json_result(navigate_page(port, url))
         elif self.path.startswith('/click'):
             port = int(qs.get('port', [CHROME_PORTS[0]])[0])
             text = qs.get('text', ['扫码登录'])[0]

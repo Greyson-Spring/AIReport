@@ -62,18 +62,40 @@ async def account_add(current_user: dict = Depends(get_current_user_or_ak)):
         if result.get('err'):
             return error_response(code=50002, message=f"启动Chrome失败: {result['err']}")
         port = result.get('port')
-        # 自动点"登录"按钮(首页需点击才显示二维码), 成功后二维码即出现
         if port:
-            for text in ['登录', '扫码登录', '微信登录']:
-                try:
-                    _agent_get(f"/click?port={port}&text={urllib.parse.quote(text)}")
-                except Exception:
-                    pass
             import time
-            time.sleep(2)
-        return success_response(data=result, message="账号已启动, 请扫码登录")
+            # 1. 导航到微信读书首页(刷新拿新二维码)
+            try:
+                _agent_get(f"/navigate?port={port}&url={urllib.parse.quote('https://weread.qq.com/')}")
+            except Exception:
+                pass
+            # 2. 点"登录"让二维码显示(重试2轮)
+            for _round in range(2):
+                for text in ['登录', '扫码登录', '微信登录']:
+                    try:
+                        _agent_get(f"/click?port={port}&text={urllib.parse.quote(text)}")
+                    except Exception:
+                        pass
+                time.sleep(4)
+        return success_response(data=result, message="账号已启动, 请尽快扫码登录")
     except Exception as e:
         return error_response(code=50001, message=f"添加失败(确认代理已启动): {e}")
+
+
+@router.post("/refresh", summary="刷新某账号的登录二维码")
+async def account_refresh(port: int = Body(...), current_user: dict = Depends(get_current_user_or_ak)):
+    """重新导航+点登录, 生成新二维码(过期时用)"""
+    import urllib.parse
+    try:
+        _agent_get(f"/navigate?port={port}&url={urllib.parse.quote('https://weread.qq.com/')}")
+        for text in ['登录', '扫码登录', '微信登录']:
+            try:
+                _agent_get(f"/click?port={port}&text={urllib.parse.quote(text)}")
+            except Exception:
+                pass
+        return success_response(data={"port": port}, message="二维码已刷新, 请尽快扫码")
+    except Exception as e:
+        return error_response(code=50001, message=f"刷新失败: {e}")
 
 
 @router.post("/remove", summary="移除账号")

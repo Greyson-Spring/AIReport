@@ -62,13 +62,16 @@
     </a-spin>
 
     <!-- 添加成功提示 -->
-    <a-modal v-model:visible="addModalVisible" title="添加账号" :footer="false" width="360">
+    <a-modal v-model:visible="addModalVisible" title="添加账号" :footer="false" width="380">
       <template v-if="lastAddedPort">
         <p>新账号已启动(端口 {{ lastAddedPort }})，请用微信扫码登录微信读书：</p>
         <div style="text-align: center; margin: 12px 0;">
-          <img :src="qrUrl(lastAddedPort)" style="width: 200px; height: 200px; border: 1px solid #eee;" />
+          <img :src="qrUrl(lastAddedPort)" style="width: 220px; height: 220px; border: 1px solid #eee;" />
         </div>
-        <p style="color: #999; font-size: 12px;">扫码登录后, 该账号即加入采集池。关闭本窗口不影响登录。</p>
+        <div style="text-align: center; margin-bottom: 8px;">
+          <a-button size="small" @click="handleRefreshQr">二维码过期了？点这里刷新</a-button>
+        </div>
+        <p style="color: #999; font-size: 12px;">二维码有效期短，请扫码后尽快确认。关闭本窗口不影响登录。</p>
       </template>
     </a-modal>
   </div>
@@ -77,7 +80,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
-import { getAccountPoolStatus, addAccount, removeAccount } from '@/api/accountPool'
+import { getAccountPoolStatus, addAccount, refreshAccountQr, removeAccount } from '@/api/accountPool'
 
 const loading = ref(false)
 const accounts = ref<any[]>([])
@@ -158,6 +161,17 @@ watch(addModalVisible, (v) => {
     qrTimer = null
   }
 })
+
+const handleRefreshQr = async () => {
+  if (!lastAddedPort.value) return
+  try {
+    await refreshAccountQr(lastAddedPort.value)
+    qrVersion.value++
+    Message.success('二维码已刷新, 请尽快扫码')
+  } catch (e: any) {
+    Message.error('刷新失败: ' + (e?.message || e))
+  }
+}
 
 const handleRemove = async (acc: any) => {
   try {
