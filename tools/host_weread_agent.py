@@ -9,6 +9,7 @@
 """
 import json
 import os
+import sys
 import time
 import zlib
 import urllib.request
@@ -229,6 +230,21 @@ def click_element(port, text):
     except Exception as e:
         return _json.dumps({'err': str(e)})
 
+def qr_with_playwright(port):
+    """用Playwright连接Chrome, 可靠等二维码出现并截图(子进程方式, 避免多线程问题)"""
+    import subprocess
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'weread_qr_capture.py')
+    try:
+        r = subprocess.run([sys.executable, script, str(port)],
+                           capture_output=True, timeout=45)
+        if r.returncode == 0 and r.stdout:
+            import base64
+            return base64.b64decode(r.stdout)
+    except Exception:
+        pass
+    return None
+
+
 def ensure_login_qr(port):
     """确保某账号Chrome显示微信读书登录二维码, 返回新鲜截图
     (先导航到微信读书首页, 点登录打开二维码, 等待后截图)"""
@@ -390,9 +406,11 @@ class Handler(BaseHTTPRequestHandler):
                 result[str(port)] = st
             self._json_result(result)
         elif self.path.startswith('/qr'):
-            # 确保某账号Chrome显示新鲜登录二维码并截图, ?port=9222
+            # 优先用Playwright可靠出二维码; 失败退回CDP
             port = int(qs.get('port', [CHROME_PORTS[0]])[0])
-            img = ensure_login_qr(port)
+            img = qr_with_playwright(port)
+            if not img:
+                img = ensure_login_qr(port)
             if img:
                 self.send_response(200)
                 self.send_header('Content-Type', 'image/png')
