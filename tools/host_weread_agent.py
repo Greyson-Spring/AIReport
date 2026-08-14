@@ -155,26 +155,46 @@ def record_error(port, text):
     except Exception:
         pass
 
+RETRY_ERR_CODES = {-2010, -2012, -2014, -2041}  # 认证/限流类错误, 换账号重试有效
+
 def fetch_articles(book_id, offset=0, port_override=None):
-    port = port_override or pick_port(book_id)
-    if port is None:
+    # 确定尝试的账号: 指定端口或按哈希路由的端口; 失败的账号会尝试下一个(自动failover)
+    ports = [int(port_override)] if port_override else list(CHROME_PORTS)
+    if not ports:
         return json.dumps({'errCode': 'NO_ACCOUNT', 'errMsg': '没有配置任何账号'})
-    text, tab = _do_fetch(book_id, offset, port)
-    try:
-        err = json.loads(text).get('errCode')
-    except Exception:
-        err = None
-    if err in ('CDP_RECV_FAIL', 'CDP_CONNECT_FAIL', 'EVAL_ERROR', 'NO_READER_PAGE'):
-        if tab:
-            print(f'[weread-agent] 账号{port} 页面异常({err}), 刷新阅读器页后重试...')
-            recover_page(port, tab)
-        else:
-            print(f'[weread-agent] 账号{port} 没有阅读器页, 自动打开一个...')
-            open_reader_page(port)
-        time.sleep(2)
-        text, _ = _do_fetch(book_id, offset, port)
-    record_error(port, text)
-    return text
+    last_text = None
+    for port in ports:
+        text, tab = _do_fetch(book_id, offset, port)
+        try:
+            err = json.loads(text).get('errCode')
+        except Exception:
+            err = None
+        # 页面异常 → 刷新重试一次
+        if err in ('CDP_RECV_FAIL', 'CDP_CONNECT_FAIL', 'EVAL_ERROR', 'NO_READER_PAGE'):
+            if tab:
+                print(f'[weread-agent] 账号{port} 页面异常({err}), 刷新后重试...')
+                recover_page(port, tab)
+            else:
+                print(f'[weread-agent] 账号{port} 没有阅读器页, 自动打开...')
+                open_reader_page(port)
+            time.sleep(2)
+            text, _ = _do_fetch(book_id, offset, port)
+            try:
+                err = json.loads(text).get('errCode')
+            except Exception:
+                err = None
+        record_error(port, text)
+        # 成功 → 返回
+        if 'reviews' in text:
+            return text
+        last_text = text
+        # 认证/限流类错误 → 换下一个账号(自动failover)
+        if isinstance(err, int) and err in RETRY_ERR_CODES:
+            print(f'[weread-agent] 账号{port} 错误({err}), 自动换下一个账号尝试...')
+            continue
+        # 其他错误(-2003 bookId无效等)换账号也没用 → 停止
+        break
+    return last_text
 
 def navigate_page(port, url):
     """导航某个账号的Chrome到指定URL(用于刷新登录页拿新二维码)"""
