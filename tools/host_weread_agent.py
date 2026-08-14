@@ -10,6 +10,7 @@
 import json
 import os
 import time
+import zlib
 import urllib.request
 import urllib.parse
 import websocket
@@ -35,10 +36,10 @@ def host_header(port):
     return f'localhost:{port}'
 
 def pick_port(book_id):
-    """按公众号bookId哈希分摊到账号池中的某个账号"""
+    """按公众号bookId哈希(crc32, 稳定)分摊到账号池中的某个账号"""
     if not CHROME_PORTS:
         return None
-    idx = hash(book_id) % len(CHROME_PORTS)
+    idx = zlib.crc32(str(book_id).encode('utf-8')) % len(CHROME_PORTS)
     return CHROME_PORTS[idx]
 
 # ===== CDP 基础操作(带端口) =====
@@ -234,19 +235,70 @@ def check_chrome_alive(port):
     except Exception:
         return False
 
+def spawn_chrome(port=None):
+    """启动一个新Chrome账号(添加账号用). 返回 {port, profile} 或 {err}"""
+    import subprocess, shutil
+    if port is None:
+        used = set(CHROME_PORTS)
+        port = 9222
+        while port in used:
+            port += 1
+    chrome = (shutil.which('google-chrome') or shutil.which('chromium')
+              or shutil.which('chromium-browser'))
+    if not chrome:
+        return {'err': 'no chrome binary found'}
+    profile = os.path.expanduser(f'~/.weread-chrome-{port}')
+    env = dict(os.environ)
+    env.setdefault('DISPLAY', ':99')
+    cmd = [chrome, f'--remote-debugging-port={port}', '--remote-allow-origins=*',
+           f'--user-data-dir={profile}', '--no-sandbox', '--disable-dev-shm-usage',
+           'https://weread.qq.com/']
+    try:
+        subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        return {'err': str(e)}
+    time.sleep(6)
+    if port not in CHROME_PORTS:
+        CHROME_PORTS.append(port)
+        ACCOUNT_STATUS[port] = {'status': 'unknown', 'last_error': '',
+                                'error_count': 0, 'last_ok': 0, 'port': port}
+    return {'port': port, 'profile': profile}
+
+def remove_chrome(port):
+    """停止一个Chrome账号. 返回 {removed: port}"""
+    import subprocess
+    try:
+        subprocess.run(['pkill', '-f', f'remote-debugging-port={port}'],
+                       capture_output=True, timeout=10)
+    except Exception:
+        pass
+    if port in CHROME_PORTS:
+        CHROME_PORTS.remove(port)
+    ACCOUNT_STATUS.pop(port, None)
+    return {'removed': port}
+
 # ===== HTTP 接口 =====
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             length = int(self.headers.get('Content-Length', 0))
             body = json.loads(self.rfile.read(length).decode('utf-8') or '{}')
-            book_id = str(body.get('book_id', ''))
-            offset = int(body.get('offset', 0))
-            result = fetch_articles(book_id, offset)
+            if self.path.startswith('/spawn'):
+                result = spawn_chrome()
+            elif self.path.startswith('/remove'):
+                port = int(body.get('port', 0))
+                result = remove_chrome(port)
+            else:
+                book_id = str(body.get('book_id', ''))
+                offset = int(body.get('offset', 0))
+                result = fetch_articles(book_id, offset)
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.end_headers()
-            self.wfile.write(result.encode('utf-8'))
+            if isinstance(result, str):
+                self.wfile.write(result.encode('utf-8'))
+            else:
+                self.wfile.write(json.dumps(result, ensure_ascii=False).encode('utf-8'))
         except Exception as e:
             self.send_response(500)
             self.send_header('Content-Type', 'application/json')
