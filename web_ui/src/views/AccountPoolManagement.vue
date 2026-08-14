@@ -75,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { getAccountPoolStatus, addAccount, removeAccount } from '@/api/accountPool'
 
@@ -83,6 +83,8 @@ const loading = ref(false)
 const accounts = ref<any[]>([])
 const addModalVisible = ref(false)
 const lastAddedPort = ref<number | null>(null)
+const qrVersion = ref(0)
+let qrTimer: any = null
 
 // 错误码 → 解决方法
 const solutions: Record<string, string> = {
@@ -112,7 +114,8 @@ const tagText = (acc: any) => {
 
 const qrUrl = (port: number) => {
   const base = import.meta.env.VITE_API_BASE_URL || ''
-  return `${base}api/v1/wx/account-pool/qr?port=${port}`
+  // 加时间戳强制刷新, 让新Chrome的二维码加载出来后自动显示
+  return `${base}api/v1/wx/account-pool/qr?port=${port}&t=${qrVersion.value}`
 }
 
 const loadStatus = async () => {
@@ -139,11 +142,22 @@ const handleAdd = async () => {
     }
     lastAddedPort.value = data.port
     addModalVisible.value = true
+    // 每3秒刷新二维码, 直到微信读书页面加载出二维码
+    if (qrTimer) clearInterval(qrTimer)
+    qrTimer = setInterval(() => { qrVersion.value++ }, 3000)
     loadStatus()
   } catch (e: any) {
     Message.error('添加失败: ' + (e?.message || e))
   }
 }
+
+// 弹窗关闭时停止二维码刷新
+watch(addModalVisible, (v) => {
+  if (!v && qrTimer) {
+    clearInterval(qrTimer)
+    qrTimer = null
+  }
+})
 
 const handleRemove = async (acc: any) => {
   try {
