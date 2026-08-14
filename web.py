@@ -32,6 +32,7 @@ from apis.ai_summary_task import router as ai_summary_task_router
 from apis.ai_qa import router as ai_qa_router
 from apis.folder import router as folder_router
 from apis.weread import router as weread_router
+from apis.account_pool import router as account_pool_router
 from views import router as views_router
 import apis
 import os
@@ -117,6 +118,7 @@ api_router.include_router(ai_summary_task_router)
 api_router.include_router(ai_qa_router)
 api_router.include_router(folder_router)
 api_router.include_router(weread_router)
+api_router.include_router(account_pool_router)
 resource_router = APIRouter(prefix="/static")
 resource_router.include_router(res_router)
 feeds_router = APIRouter()
