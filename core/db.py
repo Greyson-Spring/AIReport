@@ -194,9 +194,10 @@ class Db:
             return e # type: ignore   
              
     def get_all_mps(self) -> List[Feed]:
-        """Get all Feed records"""
+        """Get all Feed records (排除精选文章等伪公众号)"""
         try:
-            return self.get_session().query(Feed).all()
+            from core.models.feed import FEATURED_MP_ID
+            return self.get_session().query(Feed).filter(Feed.id != FEATURED_MP_ID).all()
         except Exception as e:
             print(f"Failed to fetch Feed: {e}")
             return e
