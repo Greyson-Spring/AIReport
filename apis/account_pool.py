@@ -43,6 +43,17 @@ async def account_list(current_user: dict = Depends(get_current_user_or_ak)):
         return error_response(code=50001, message=f"无法连接宿主机代理: {e}")
 
 
+@router.get("/qr", summary="获取账号登录二维码图片(代理宿主机)")
+async def account_qr(port: int = 9222, current_user: dict = Depends(get_current_user_or_ak)):
+    """返回某账号Chrome当前画面(登录二维码), 经后端转发给浏览器"""
+    from fastapi.responses import Response
+    try:
+        img = urllib.request.urlopen(f"{AGENT_BASE}/qr?port={port}", timeout=15).read()
+        return Response(content=img, media_type="image/png")
+    except Exception:
+        return Response(content=b'', media_type="image/png")
+
+
 @router.post("/add", summary="添加账号(启动新Chrome)")
 async def account_add(current_user: dict = Depends(get_current_user_or_ak)):
     """启动一个新Chrome账号, 返回端口, 之后用 /qr?port= 看二维码扫码登录"""

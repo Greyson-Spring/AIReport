@@ -29,7 +29,7 @@ import { ref, computed, watchEffect, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   IconWechat, IconExport, IconTag, IconNotification, IconFilter,
-  IconList, IconStorage, IconShareExternal, IconLock,
+  IconList, IconStorage, IconShareExternal, IconLock, IconApps,
   IconExclamationCircle, IconRobot, IconSettings, IconInfoCircle, IconUser, IconMessage
 } from '@arco-design/web-vue/es/icon'
 import TextIcon from '@/components/TextIcon.vue'
@@ -52,6 +52,7 @@ const allMenus = [
   { key: '/configs', label: '配置信息', icon: IconSettings },
   { key: '/sys-info', label: '系统信息', icon: IconInfoCircle },
   { key: '/user-management', label: '用户管理', icon: IconUser },
+  { key: '/account-pool', label: '账号池', icon: IconApps },
 ]
 
 const { userRole, menuPermissions, loadPermissions } = useUserPermissions()

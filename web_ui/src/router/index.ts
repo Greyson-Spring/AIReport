@@ -233,9 +233,18 @@ const routes = [
         path: 'user-management',
         name: 'UserManagement',
         component: () => import('@/views/UserManagement.vue'),
-        meta: { 
+        meta: {
           requiresAuth: true,
-          permissions: ['admin'] 
+          permissions: ['admin']
+        }
+      },
+      {
+        path: 'account-pool',
+        name: 'AccountPoolManagement',
+        component: () => import('@/views/AccountPoolManagement.vue'),
+        meta: {
+          requiresAuth: true,
+          permissions: ['admin']
         }
       },
       {
