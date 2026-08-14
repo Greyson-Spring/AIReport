@@ -43,8 +43,9 @@ async def account_list(current_user: dict = Depends(get_current_user_or_ak)):
 
 
 @router.get("/qr", summary="获取账号登录二维码图片(代理宿主机)")
-async def account_qr(port: int = 9222, current_user: dict = Depends(get_current_user_or_ak)):
-    """返回某账号Chrome当前画面(登录二维码), 经后端转发给浏览器"""
+async def account_qr(port: int = 9222):
+    """返回某账号Chrome当前画面(登录二维码), 经后端转发给浏览器。
+    注意: 前端用<img>加载图片无法带Authorization头, 故此处不要求登录(仅内网管理页使用)"""
     from fastapi.responses import Response
     try:
         # Playwright流程(导航+点登录+等二维码)需要较长时间, 超时给足
