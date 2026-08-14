@@ -14,16 +14,15 @@ AGENT_BASE = AGENT_BASE.replace("/fetch", "")  # 去掉可能带上的 /fetch �
 
 
 def _agent_get(path):
-    req = urllib.request.Request(AGENT_BASE + path, timeout=10)
-    return json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
+    req = urllib.request.Request(AGENT_BASE + path)
+    return json.loads(urllib.request.urlopen(req, timeout=10).read().decode('utf-8'))
 
 
 def _agent_post(path, data=None):
     body = json.dumps(data or {}).encode('utf-8')
     req = urllib.request.Request(AGENT_BASE + path, data=body,
-                                 headers={"Content-Type": "application/json"},
-                                 timeout=20)
-    return json.loads(urllib.request.urlopen(req).read().decode('utf-8'))
+                                 headers={"Content-Type": "application/json"})
+    return json.loads(urllib.request.urlopen(req, timeout=20).read().decode('utf-8'))
 
 
 @router.get("/status", summary="账号池状态")
