@@ -65,15 +65,15 @@
     <a-modal v-model:visible="addModalVisible" title="添加账号" :footer="false" width="380">
       <template v-if="lastAddedPort">
         <p>新账号已启动(端口 {{ lastAddedPort }})，请用微信扫码登录微信读书：</p>
-        <div style="text-align: center; margin: 12px 0;">
+        <div style="position: relative; width: 220px; height: 220px; border: 1px solid #eee; margin: 12px auto;">
+          <!-- 始终加载img(后端会返回二维码), 加载时上面盖一层提示 -->
           <img
-            v-if="!qrLoading"
             :src="qrUrl(lastAddedPort)"
-            style="width: 220px; height: 220px; border: 1px solid #eee;"
+            style="width: 220px; height: 220px;"
             @load="qrLoading = false"
             @error="qrLoading = true"
           />
-          <div v-else style="width: 220px; height: 220px; border: 1px solid #eee; display:flex; align-items:center; justify-content:center; color:#999;">
+          <div v-if="qrLoading" style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; background:#fff; color:#999; font-size:13px;">
             正在生成二维码，约需30秒...
           </div>
         </div>
