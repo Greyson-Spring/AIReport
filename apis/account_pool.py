@@ -86,8 +86,8 @@ async def account_refresh(port: int = Body(...), current_user: dict = Depends(ge
 
 
 @router.post("/remove", summary="移除账号")
-async def account_remove(port: int = Body(...), current_user: dict = Depends(get_current_user_or_ak)):
-    """停掉指定端口对应的Chrome账号"""
+async def account_remove(port: int, current_user: dict = Depends(get_current_user_or_ak)):
+    """停掉指定端口对应的Chrome账号 (port通过query参数传)"""
     try:
         result = _agent_post("/remove", {"port": port})
         return success_response(data=result, message="账号已移除")
