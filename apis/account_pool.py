@@ -55,11 +55,22 @@ async def account_qr(port: int = 9222, current_user: dict = Depends(get_current_
 
 @router.post("/add", summary="添加账号(启动新Chrome)")
 async def account_add(current_user: dict = Depends(get_current_user_or_ak)):
-    """启动一个新Chrome账号, 返回端口, 之后用 /qr?port= 看二维码扫码登录"""
+    """启动一个新Chrome账号, 自动点"登录"让二维码显示, 返回端口"""
+    import urllib.parse
     try:
         result = _agent_post("/spawn", {})
         if result.get('err'):
             return error_response(code=50002, message=f"启动Chrome失败: {result['err']}")
+        port = result.get('port')
+        # 自动点"登录"按钮(首页需点击才显示二维码), 成功后二维码即出现
+        if port:
+            for text in ['登录', '扫码登录', '微信登录']:
+                try:
+                    _agent_get(f"/click?port={port}&text={urllib.parse.quote(text)}")
+                except Exception:
+                    pass
+            import time
+            time.sleep(2)
         return success_response(data=result, message="账号已启动, 请扫码登录")
     except Exception as e:
         return error_response(code=50001, message=f"添加失败(确认代理已启动): {e}")
