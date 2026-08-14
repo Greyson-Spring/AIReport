@@ -66,7 +66,16 @@
       <template v-if="lastAddedPort">
         <p>新账号已启动(端口 {{ lastAddedPort }})，请用微信扫码登录微信读书：</p>
         <div style="text-align: center; margin: 12px 0;">
-          <img :src="qrUrl(lastAddedPort)" style="width: 220px; height: 220px; border: 1px solid #eee;" />
+          <img
+            v-if="!qrLoading"
+            :src="qrUrl(lastAddedPort)"
+            style="width: 220px; height: 220px; border: 1px solid #eee;"
+            @load="qrLoading = false"
+            @error="qrLoading = true"
+          />
+          <div v-else style="width: 220px; height: 220px; border: 1px solid #eee; display:flex; align-items:center; justify-content:center; color:#999;">
+            正在生成二维码，约需30秒...
+          </div>
         </div>
         <div style="text-align: center; margin-bottom: 8px;">
           <a-button size="small" @click="handleRefreshQr">二维码过期了？点这里刷新</a-button>
@@ -87,6 +96,7 @@ const accounts = ref<any[]>([])
 const addModalVisible = ref(false)
 const lastAddedPort = ref<number | null>(null)
 const qrVersion = ref(0)
+const qrLoading = ref(false)
 
 // 错误码 → 解决方法
 const solutions: Record<string, string> = {
@@ -145,6 +155,7 @@ const handleAdd = async () => {
     lastAddedPort.value = data.port
     addModalVisible.value = true
     qrVersion.value++  // 加载一次二维码(接口内部会导航+点登录确保新鲜)
+    qrLoading.value = true  // 显示"正在生成二维码"提示
     loadStatus()
   } catch (e: any) {
     Message.error('添加失败: ' + (e?.message || e))

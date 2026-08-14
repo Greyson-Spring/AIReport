@@ -47,7 +47,8 @@ async def account_qr(port: int = 9222, current_user: dict = Depends(get_current_
     """返回某账号Chrome当前画面(登录二维码), 经后端转发给浏览器"""
     from fastapi.responses import Response
     try:
-        img = urllib.request.urlopen(f"{AGENT_BASE}/qr?port={port}", timeout=15).read()
+        # Playwright流程(导航+点登录+等二维码)需要较长时间, 超时给足
+        img = urllib.request.urlopen(f"{AGENT_BASE}/qr?port={port}", timeout=60).read()
         return Response(content=img, media_type="image/png")
     except Exception:
         return Response(content=b'', media_type="image/png")
