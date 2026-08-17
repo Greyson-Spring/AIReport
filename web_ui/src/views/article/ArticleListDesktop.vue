@@ -1567,8 +1567,8 @@ const importMPS = async () => {
       Message.info(response?.message || "导入成功");
     };
     input.click();
-  } catch (error) {
-    Message.error(error?.message || '导入公众号失败');
+  } catch (error: any) {
+    Message.error(typeof error === 'string' ? error : (error?.detail?.message || error?.message || '导入公众号失败'));
   }
 };
 

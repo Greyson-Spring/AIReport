@@ -77,8 +77,23 @@ async def import_mps(
     try:
         from core.models.feed import Feed
 
-        # 读取上传的CSV文件
-        contents = (await file.read()).decode('utf-8-sig')
+        # 读取上传的CSV文件(兼容 UTF-8 / GBK 编码)
+        raw = await file.read()
+        contents = None
+        for enc in ("utf-8-sig", "gb18030"):
+            try:
+                contents = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if contents is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_response(
+                    code=40001,
+                    message="无法识别CSV文件编码, 请在Excel中另存为\"CSV UTF-8(逗号分隔)\"后重试"
+                )
+            )
         csv_reader = csv.DictReader(io.StringIO(contents))
 
         # 验证必要字段
@@ -89,36 +104,64 @@ async def import_mps(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=error_response(
                     code=40001,
-                    message=f"CSV文件缺少必要列: {', '.join(missing_cols)}"
+                    message=f"CSV文件缺少必要列: {', '.join(missing_cols)} (表头需包含: 公众号名称,封面图,简介)"
                 )
             )
 
         # 导入数据
+        from core.models.user_feed import UserFeed
+        user_id = current_user.get("username")
+        if not user_id and current_user.get("original_user"):
+            user_id = current_user["original_user"].username
+
         imported = 0
         updated = 0
         skipped = 0
+        to_fetch = []  # 需要触发抓取的公众号(新导入的 + 从未抓过的)
 
         for row in csv_reader:
-            mp_id = row["id"]
-            mp_name = row["公众号名称"]
-            mp_cover = row["封面图"]
-            mp_intro = row.get("简介", "")
+            mp_id = (row.get("id") or "").strip()
+            mp_name = (row.get("公众号名称") or "").strip()
+            mp_cover = row.get("封面图") or ""
+            mp_intro = row.get("简介") or ""
             status_val = int(row.get("状态", 1)) if row.get("状态") else 1
-            faker_id = row.get("faker_id", "")
+            faker_id = (row.get("faker_id") or "").strip()
 
-            # 检查是否已存在
-            existing = session.query(Feed).filter(Feed.faker_id == faker_id).first()
+            # 没有id但只有faker_id时, 由faker_id补出id
+            if not mp_id and faker_id:
+                try:
+                    import base64
+                    mp_id = f"MP_WXS_{base64.b64decode(faker_id).decode('utf-8')}"
+                except Exception:
+                    mp_id = ""
+            if not mp_id and not faker_id:
+                print(f"导入跳过(缺id和faker_id): {mp_name}")
+                skipped += 1
+                continue
+
+            # 按 faker_id 或 id 查是否已存在
+            existing = None
+            if faker_id:
+                existing = session.query(Feed).filter(Feed.faker_id == faker_id).first()
+            if existing is None and mp_id:
+                existing = session.query(Feed).filter(Feed.id == mp_id).first()
 
             if existing:
-                # 更新现有记录
-                existing.mp_cover = mp_cover
-                existing.mp_intro = mp_intro
+                # 更新现有记录(空值不覆盖已有内容)
+                existing.mp_name = mp_name or existing.mp_name
+                existing.mp_cover = mp_cover or existing.mp_cover
+                existing.mp_intro = mp_intro or existing.mp_intro
                 existing.status = status_val
-                existing.faker_id = faker_id
+                if faker_id:
+                    existing.faker_id = faker_id
+                feed = existing
+                # 从未抓过文章的号, 一并触发抓取
+                if not feed.update_time:
+                    to_fetch.append(feed)
                 updated += 1
             else:
                 # 创建新记录
-                mp = Feed(
+                feed = Feed(
                     id=mp_id,
                     mp_name=mp_name,
                     mp_cover=mp_cover,
@@ -127,25 +170,61 @@ async def import_mps(
                     faker_id=faker_id,
                     created_at=datetime.now()
                 )
-                import base64
-                if mp.id == None:
-                    _mp_id=base64.b64decode(faker_id).decode("utf-8")
-                    mp.id=f"MP_WXS_{_mp_id}"
-                session.add(mp)
+                session.add(feed)
+                to_fetch.append(feed)
                 imported += 1
+
+            # 创建/恢复当前用户的订阅关系(否则前端"未分类公众号"里看不到)
+            if user_id:
+                user_feed = session.query(UserFeed).filter(
+                    UserFeed.user_id == user_id,
+                    UserFeed.feed_id == feed.id
+                ).first()
+                if user_feed:
+                    if user_feed.status == 0:
+                        user_feed.status = 1
+                        user_feed.disabled_at = None
+                else:
+                    session.add(UserFeed(
+                        user_id=user_id,
+                        feed_id=feed.id,
+                        status=1,
+                        created_at=datetime.now(),
+                        updated_at=datetime.now(),
+                    ))
 
         session.commit()
 
+        # 触发导入公众号的文章抓取(与单条添加公众号的行为一致)
+        if to_fetch:
+            from core.queue import TaskQueue
+            from core.wx import WxGather
+            from jobs.article import UpdateArticle
+            Max_page = int(cfg.get("max_page", "2"))
+            for feed in to_fetch:
+                TaskQueue.add_task(
+                    WxGather().Model().get_Articles,
+                    faker_id=feed.faker_id,
+                    Mps_id=feed.id,
+                    CallBack=UpdateArticle,
+                    MaxPage=Max_page,
+                    Mps_title=feed.mp_name,
+                    task_name=feed.mp_name
+                )
+
         return success_response({
-            "message": "导入公众号列表成功",
+            "message": f"导入成功: 新增{imported}个/更新{updated}个/跳过{skipped}个, 已开始抓取{len(to_fetch)}个号的文章",
             "stats": {
                 "total": imported + updated + skipped,
                 "imported": imported,
                 "updated": updated,
-                "skipped": skipped
+                "skipped": skipped,
+                "fetch_triggered": len(to_fetch)
             }
         })
 
+    except HTTPException:
+        raise
     except Exception as e:
         session.rollback()
         print(f"导入公众号列表错误: {str(e)}")
@@ -153,7 +232,7 @@ async def import_mps(
             status_code=status.HTTP_201_CREATED,
             detail=error_response(
                 code=50001,
-                message="导入公众号列表失败"
+                message=f"导入公众号列表失败: {str(e)}"
             )
         )
 
