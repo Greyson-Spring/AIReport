@@ -26,7 +26,7 @@ def _agent_post(path, data=None):
 
 
 @router.get("/status", summary="账号池状态")
-async def account_status(current_user: dict = Depends(get_current_user_or_ak)):
+def account_status(current_user: dict = Depends(get_current_user_or_ak)):
     """获取每个账号的状态(登录/错误码/Chrome是否存活)"""
     try:
         return success_response(data=_agent_get("/status"))
@@ -35,7 +35,7 @@ async def account_status(current_user: dict = Depends(get_current_user_or_ak)):
 
 
 @router.get("/accounts", summary="账号列表")
-async def account_list(current_user: dict = Depends(get_current_user_or_ak)):
+def account_list(current_user: dict = Depends(get_current_user_or_ak)):
     try:
         return success_response(data=_agent_get("/accounts"))
     except Exception as e:
@@ -43,9 +43,11 @@ async def account_list(current_user: dict = Depends(get_current_user_or_ak)):
 
 
 @router.get("/qr", summary="获取账号登录二维码图片(代理宿主机)")
-async def account_qr(port: int = 9222):
+def account_qr(port: int = 9222):
     """返回某账号Chrome当前画面(登录二维码), 经后端转发给浏览器。
-    注意: 前端用<img>加载图片无法带Authorization头, 故此处不要求登录(仅内网管理页使用)"""
+    注意: 前端用<img>加载图片无法带Authorization头, 故此处不要求登录(仅内网管理页使用)
+    用普通def而非async def: 本接口内是阻塞式网络调用(最长60s),
+    放async def里会卡住FastAPI事件循环, 导致整个后端所有接口跟着卡死。"""
     from fastapi.responses import Response
     try:
         # Playwright流程(导航+点登录+等二维码)需要较长时间, 超时给足
@@ -56,7 +58,7 @@ async def account_qr(port: int = 9222):
 
 
 @router.post("/add", summary="添加账号(启动新Chrome)")
-async def account_add(current_user: dict = Depends(get_current_user_or_ak)):
+def account_add(current_user: dict = Depends(get_current_user_or_ak)):
     """启动一个新Chrome账号, 自动点"登录"让二维码显示, 返回端口"""
     import urllib.parse
     try:
@@ -70,7 +72,7 @@ async def account_add(current_user: dict = Depends(get_current_user_or_ak)):
 
 
 @router.post("/refresh", summary="刷新某账号的登录二维码")
-async def account_refresh(port: int = Body(...), current_user: dict = Depends(get_current_user_or_ak)):
+def account_refresh(port: int = Body(...), current_user: dict = Depends(get_current_user_or_ak)):
     """重新导航+点登录, 生成新二维码(过期时用)"""
     import urllib.parse
     try:
@@ -86,7 +88,7 @@ async def account_refresh(port: int = Body(...), current_user: dict = Depends(ge
 
 
 @router.post("/remove", summary="移除账号")
-async def account_remove(port: int, current_user: dict = Depends(get_current_user_or_ak)):
+def account_remove(port: int, current_user: dict = Depends(get_current_user_or_ak)):
     """停掉指定端口对应的Chrome账号 (port通过query参数传)"""
     try:
         result = _agent_post("/remove", {"port": port})
