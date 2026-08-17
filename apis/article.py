@@ -335,6 +335,7 @@ async def get_articles(
     status: str = Query(None),
     search: str = Query(None),
     mp_id: str = Query(None),
+    folder_id: int = Query(None),
     only_favorite: bool = Query(False),
     has_content:bool=Query(False),
     current_user: dict = Depends(get_current_user_or_ak)
@@ -370,10 +371,23 @@ async def get_articles(
             ).subquery()
             query = query.filter(ArticleBase.id.notin_(hidden_subq))
 
-        # 用户文章隔离：未指定 mp_id 时，只显示当前用户订阅的公众号文章
+        # 按文件夹筛选: 一次查询文件夹内所有公众号的文章(替代前端逐个公众号请求)
+        if folder_id:
+            from core.models.folder import FolderFeed
+            folder_feed_ids = [
+                ff.feed_id for ff in session.query(FolderFeed).filter(
+                    FolderFeed.folder_id == folder_id
+                ).all()
+            ]
+            if folder_feed_ids:
+                query = query.filter(ArticleBase.mp_id.in_(folder_feed_ids))
+            else:
+                # 文件夹里没有公众号, 返回空
+                query = query.filter(false())
+        # 用户文章隔离：未指定 mp_id/folder_id 时，只显示当前用户订阅的公众号文章
         # 但当 only_favorite=True 时跳过订阅过滤，因为 UserFavorite JOIN
         # 已经保证只返回用户收藏的文章（包括精选文章，它不在 UserFeed 中）
-        if not mp_id and not only_favorite:
+        elif not mp_id and not only_favorite:
             from core.models.user_feed import UserFeed
             user_id = current_user.get("username")
             if not user_id:

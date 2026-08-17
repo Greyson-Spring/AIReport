@@ -41,6 +41,7 @@ export interface ArticleListParams {
   search?: string
   status?: number
   mp_id?: string
+  folder_id?: number
   has_content?: boolean
   only_favorite?: boolean
 }
@@ -68,6 +69,7 @@ export const getArticles = (params: ArticleListParams) => {
     search: params.search,
     status: params.status,
     mp_id: params.mp_id,
+    folder_id: params.folder_id,
     has_content: params.has_content,
     only_favorite: params.only_favorite
   }

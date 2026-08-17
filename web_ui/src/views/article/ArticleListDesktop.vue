@@ -958,56 +958,15 @@ const fetchArticlesByFolder = async (folder) => {
     return
   }
 
-  loading.value = true
-  try {
-    const feedsInFolder = folder.feeds || []
-
-    if (feedsInFolder.length === 0) {
-      articles.value = []
-      pagination.value.total = 0
-      Message.info(`"${folder.name}" 文件夹暂无公众号`)
-      return
-    }
-
-    const allArticles = []
-    const mpIds = feedsInFolder.map(f => f.id)
-
-    const promises = mpIds.map(mpId =>
-      getArticles({
-        page: 0,
-        pageSize: 20,
-        mp_id: mpId,
-        only_favorite: onlyFavorite.value
-      }).catch(e => ({ list: [], total: 0 }))
-    )
-
-    const results = await Promise.all(promises)
-
-    results.forEach(result => {
-      const articleList = result?.list || []
-      if (articleList.length > 0) {
-        allArticles.push(...articleList.map(item => ({
-          ...item,
-          publish_time: item.publish_time || item.create_time || '-',
-          url: item.url || "https://mp.weixin.qq.com/s/" + item.id,
-          is_favorite: item.is_favorite === 1 ? 1 : 0
-        })))
-      }
-    })
-
-    allArticles.sort((a, b) => (b.publish_time || 0) - (a.publish_time || 0))
-
-    const start = (pagination.value.current - 1) * pagination.value.pageSize
-    const end = start + pagination.value.pageSize
-    articles.value = allArticles.slice(start, end)
-    pagination.value.total = allArticles.length
-
-  } catch (error) {
-    console.error('获取文件夹文章失败:', error)
-    Message.error('获取文章失败')
-  } finally {
-    loading.value = false
+  if ((folder.feeds || []).length === 0) {
+    articles.value = []
+    pagination.value.total = 0
+    Message.info(`"${folder.name}" 文件夹暂无公众号`)
+    return
   }
+
+  // 一次性按 folder_id 查询(后端做分页), 不再逐个公众号请求
+  await fetchArticles()
 }
 // ========= 获取文章列表 ==========
 
@@ -1453,6 +1412,7 @@ const fetchArticles = async () => {
       search: searchText.value,
       status: filterStatus.value,
       mp_id: isFeatured ? undefined : activeMpId.value,  // 精选文章时不按 mp_id 筛选
+      folder_id: activeFolderId.value || undefined,       // 文件夹视图: 按文件夹筛选
       only_favorite: isFeatured || onlyFavorite.value   // 精选文章时强制只显示收藏的
     })
 
