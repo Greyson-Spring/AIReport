@@ -67,8 +67,14 @@ def find_any_page(port):
         pass
     return None
 
-def open_reader_page(port):
-    url = cdp_base(port) + '/json/new?' + urllib.parse.quote(READER_URL, safe='')
+def reader_url_for(book_id=None):
+    """阅读器页地址: 优先用当前要抓的公众号bookId, 没有才退回写死的链接"""
+    if book_id:
+        return f'https://weread.qq.com/web/mp/reader/{book_id}'
+    return READER_URL
+
+def open_reader_page(port, book_id=None):
+    url = cdp_base(port) + '/json/new?' + urllib.parse.quote(reader_url_for(book_id), safe='')
     req = urllib.request.Request(url, method='PUT')
     req.add_header('Host', host_header(port))
     try:
@@ -78,12 +84,13 @@ def open_reader_page(port):
     except Exception:
         return None
 
-def recover_page(port, tab):
+def recover_page(port, tab, book_id=None):
     try:
         ws_url = f'ws://localhost:{port}/devtools/page/' + tab['id']
         ws = websocket.create_connection(ws_url, timeout=10)
         ws.settimeout(10)
-        ws.send(json.dumps({'id': 1, 'method': 'Page.navigate', 'params': {'url': READER_URL}}))
+        ws.send(json.dumps({'id': 1, 'method': 'Page.navigate',
+                            'params': {'url': reader_url_for(book_id)}}))
         time.sleep(7)
         ws.close()
         return True
@@ -169,14 +176,14 @@ def fetch_articles(book_id, offset=0, port_override=None):
             err = json.loads(text).get('errCode')
         except Exception:
             err = None
-        # 页面异常 → 刷新重试一次
+        # 页面异常 → 刷新重试一次(用当前公众号的bookId开阅读器页)
         if err in ('CDP_RECV_FAIL', 'CDP_CONNECT_FAIL', 'EVAL_ERROR', 'NO_READER_PAGE'):
             if tab:
                 print(f'[weread-agent] 账号{port} 页面异常({err}), 刷新后重试...')
-                recover_page(port, tab)
+                recover_page(port, tab, book_id)
             else:
-                print(f'[weread-agent] 账号{port} 没有阅读器页, 自动打开...')
-                open_reader_page(port)
+                print(f'[weread-agent] 账号{port} 没有阅读器页, 自动打开({book_id})...')
+                open_reader_page(port, book_id)
             time.sleep(2)
             text, _ = _do_fetch(book_id, offset, port)
             try:
@@ -372,13 +379,21 @@ def spawn_chrome(port=None):
     return {'port': port, 'profile': profile}
 
 def remove_chrome(port):
-    """停止一个Chrome账号. 返回 {removed: port}"""
+    """停止一个Chrome账号并删除其用户数据(登录态). 返回 {removed: port}"""
     import subprocess
+    import time
+    import shutil
     try:
         subprocess.run(['pkill', '-f', f'remote-debugging-port={port}'],
                        capture_output=True, timeout=10)
     except Exception:
         pass
+    # 等进程退出, 释放文件句柄后再删用户数据, 否则删除不干净
+    time.sleep(1)
+    profile = os.path.expanduser(f'~/.weread-chrome-{port}')
+    if os.path.exists(profile):
+        shutil.rmtree(profile, ignore_errors=True)
+        print(f'[weread-agent] 已删除账号{port}的用户数据({profile})')
     if port in CHROME_PORTS:
         CHROME_PORTS.remove(port)
     ACCOUNT_STATUS.pop(port, None)
