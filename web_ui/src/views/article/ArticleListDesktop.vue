@@ -234,13 +234,17 @@
                   <span>拖拽公众号到此可移出文件夹</span>
                 </div>
               </div>
-              <!-- 未分类公众号分页 -->
+              <!-- 未分类公众号分页: 紧凑页码样式, 保留共N条, 页码过多自动省略(1 2 3 ... 9) -->
               <a-pagination
                 :total="mpPagination.total"
                 :current="mpPagination.current"
                 :page-size="mpPagination.pageSize"
                 @change="handleMpPageChange"
                 :show-total="true"
+                :show-page-size="false"
+                :show-jumper="false"
+                size="small"
+                :buffer-size="2"
                 style="margin-top: 1rem; padding: 0 8px;"
               />
               
