@@ -235,19 +235,20 @@
                 </div>
               </div>
             </div>
-            <!-- 未分类公众号分页: 固定在侧边栏底部, 列表滚动也不影响使用; 页码紧凑自动省略(1 2 3 ... N) -->
-            <div style="flex-shrink: 0; padding: 8px; border-top: 1px solid var(--color-neutral-3); background: #fff;">
+            <!-- 未分类公众号分页: 固定在侧边栏底部, 左边"共N条" + 右边紧凑页码(1 2 3 ... N), 首页末页始终可点 -->
+            <div style="flex-shrink: 0; padding: 8px; border-top: 1px solid var(--color-neutral-3); background: #fff; display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+              <span style="font-size: 12px; color: var(--color-text-3); white-space: nowrap;">共 {{ mpPagination.total }} 条</span>
               <a-pagination
                 :total="mpPagination.total"
                 :current="mpPagination.current"
                 :page-size="mpPagination.pageSize"
                 @change="handleMpPageChange"
-                :show-total="true"
+                :show-total="false"
                 :show-page-size="false"
                 :show-jumper="false"
                 size="small"
                 :buffer-size="2"
-                style="width: 100%;"
+                style="white-space: nowrap;"
               />
             </div>
           </div>
