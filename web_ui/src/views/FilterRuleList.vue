@@ -27,7 +27,7 @@ const isMobile = ref(window.innerWidth < 768)
 // 获取公众号列表
 const fetchMpList = async () => {
   try {
-    const res = await getSubscriptions({ page: 0, pageSize: 100 })
+    const res = await getSubscriptions({ page: 0, pageSize: 1000 })
     mpList.value = res.list || []
   } catch (error) {
     console.error('获取公众号列表失败:', error)

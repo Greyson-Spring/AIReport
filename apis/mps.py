@@ -245,7 +245,7 @@ async def search_mp(
 
 @router.get("", summary="获取公众号列表（当前用户的订阅）")
 async def get_mps(
-    limit: int = Query(10, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     kw: str = Query(""),
     status: int = Query(None, description="状态筛选: 1=启用, 0=停用, 不传=全部"),

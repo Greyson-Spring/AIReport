@@ -664,7 +664,7 @@ const buildLeftSidebarData = async (searchKeyword = '') => {
     // 1. 并行获取所有文件夹和所有公众号（不分页，假设不会超过100个）
     const [folderListRes, allFeedsRes] = await Promise.all([
       getFolderList(),
-      getSubscriptions({ page: 0, pageSize: 100 })
+      getSubscriptions({ page: 0, pageSize: 1000 })
     ])
 
 
