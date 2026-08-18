@@ -234,7 +234,9 @@
                   <span>拖拽公众号到此可移出文件夹</span>
                 </div>
               </div>
-              <!-- 未分类公众号分页: 紧凑页码样式, 保留共N条, 页码过多自动省略(1 2 3 ... 9) -->
+            </div>
+            <!-- 未分类公众号分页: 固定在侧边栏底部, 列表滚动也不影响使用; 页码紧凑自动省略(1 2 3 ... N) -->
+            <div style="flex-shrink: 0; padding: 8px; border-top: 1px solid var(--color-neutral-3); background: #fff;">
               <a-pagination
                 :total="mpPagination.total"
                 :current="mpPagination.current"
@@ -245,9 +247,8 @@
                 :show-jumper="false"
                 size="small"
                 :buffer-size="2"
-                style="margin-top: 1rem; padding: 0 8px;"
+                style="width: 100%;"
               />
-              
             </div>
           </div>
         </a-card>
@@ -886,6 +887,8 @@ const onDropToUnassigned = async (event) => {
     if (sourceFeed && !unassignedMpList.value.some(f => f.id === feedId)) {
       unassignedMpList.value.push(sourceFeed)
     }
+    // 3. 同步更新未分类分页的"共N条", 否则要刷新页面才变化
+    mpPagination.value.total = unassignedMpList.value.length
     
     Message.success('公众号已移出文件夹')
     
