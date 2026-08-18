@@ -235,21 +235,21 @@
                 </div>
               </div>
             </div>
-            <!-- 未分类公众号分页: 固定在侧边栏底部, 左边"共N条" + 右边紧凑页码(1 2 3 ... N), 首页末页始终可点 -->
+            <!-- 未分类公众号分页: 固定底部, "共N条" + 滑窗页码(每屏4个, 页多时点>滑动, 如 1 2 3 4 -> 3 4 5 6) -->
             <div style="flex-shrink: 0; padding: 8px; border-top: 1px solid var(--color-neutral-3); background: #fff; display: flex; align-items: center; justify-content: space-between; gap: 4px;">
               <span style="font-size: 12px; color: var(--color-text-3); white-space: nowrap;">共 {{ mpPagination.total }} 条</span>
-              <a-pagination
-                :total="mpPagination.total"
-                :current="mpPagination.current"
-                :page-size="mpPagination.pageSize"
-                @change="handleMpPageChange"
-                :show-total="false"
-                :show-page-size="false"
-                :show-jumper="false"
-                size="small"
-                :buffer-size="2"
-                style="white-space: nowrap;"
-              />
+              <div style="display: flex; align-items: center; gap: 2px; white-space: nowrap;">
+                <a-button size="mini" :disabled="mpPagination.current <= 1" @click="goMpPage(mpPagination.current - 1)">&lt;</a-button>
+                <template v-for="p in mpPageWindow" :key="p">
+                  <a-button
+                    size="mini"
+                    :type="p === mpPagination.current ? 'primary' : 'secondary'"
+                    @click="goMpPage(p)"
+                    style="min-width: 26px; padding: 0 4px;"
+                  >{{ p }}</a-button>
+                </template>
+                <a-button size="mini" :disabled="mpPagination.current >= mpTotalPages" @click="goMpPage(mpPagination.current + 1)">&gt;</a-button>
+              </div>
             </div>
           </div>
         </a-card>
@@ -560,6 +560,24 @@ const pagedUnassignedMpList = computed(() => {
   const start = (mpPagination.value.current - 1) * mpPagination.value.pageSize
   return unassignedMpList.value.slice(start, start + mpPagination.value.pageSize)
 })
+// ===== 未分类滑窗分页: 每屏最多4个页码, 页多时点>滑动窗口 =====
+const mpTotalPages = computed(() =>
+  Math.max(1, Math.ceil(mpPagination.value.total / (mpPagination.value.pageSize || 10)))
+)
+const mpPageWindow = computed(() => {
+  const total = mpTotalPages.value
+  const c = Math.min(Math.max(mpPagination.value.current, 1), total)
+  if (total <= 4) {
+    return Array.from({ length: total }, (_, i) => i + 1)
+  }
+  const start = Math.min(Math.max(c - 2, 1), total - 3)
+  return [start, start + 1, start + 2, start + 3]
+})
+const goMpPage = (page: number) => {
+  if (!page || page < 1) page = 1
+  if (page > mpTotalPages.value) page = mpTotalPages.value
+  mpPagination.value.current = page
+}
 const searchText = ref('')
 const filterStatus = ref('')
 const mpSearchText = ref('')
