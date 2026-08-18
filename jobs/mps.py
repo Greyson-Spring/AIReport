@@ -241,11 +241,24 @@ def add_job(feeds:list[Feed]=None,task:MessageTask=None,isTest=False):
     pass
 import json
 def get_feeds(task:MessageTask=None):
-     mps = json.loads(task.mps_id)
-     ids=",".join([item["id"]for item in mps])
+     """获取消息任务选定的公众号列表。
+     只更新任务里明确选中的公众号, 不再回退到"全部公众号"(防止误更新非本用户订阅的号)"""
+     if not task or not task.mps_id:
+         print_warning("消息任务没有指定公众号, 跳过更新")
+         return []
+     try:
+         mps = json.loads(task.mps_id)
+     except Exception as e:
+         print_warning(f"消息任务公众号列表解析失败: {e}")
+         return []
+     ids=",".join([item.get("id","") for item in mps if item.get("id")])
+     if not ids:
+         print_warning("消息任务公众号列表为空, 跳过更新")
+         return []
      mps=wx_db.get_mps_list(ids)
-     if len(mps)==0:
-        mps=wx_db.get_all_mps()
+     if not isinstance(mps, list) or len(mps)==0:
+         print_warning("消息任务选定的公众号在数据库中不存在, 跳过更新")
+         return []
      return mps
 scheduler=TaskScheduler()
 def reload_job():
