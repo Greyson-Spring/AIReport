@@ -282,10 +282,16 @@ class MpsWereadMP(MpsWeread):
                     break
 
             if content_failures:
-                raise WereadMPAPIError(
-                    "content_incomplete",
-                    f"{len(content_failures)} article bodies could not be fetched",
+                # 部分正文抓取失败不再中断整个公众号更新:
+                # 记录警告, 空正文的文章由自动补抓任务(fetch_no_article)稍后重试
+                logger.warning(
+                    f"微信读书正文抓取失败 {len(content_failures)} 篇, 稍后由自动补抓重试"
                 )
+                self.last_error = {
+                    "message": f"{len(content_failures)} article bodies could not be fetched",
+                    "code": "content_incomplete",
+                    "retriable": True,
+                }
             if not reached_previous_update:
                 raise WereadMPAPIError(
                     "backlog_incomplete",

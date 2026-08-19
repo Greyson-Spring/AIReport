@@ -119,8 +119,8 @@ article:
   true_delete: ${ARTICLE.TRUE_DELETE:-False}
 
 gather:
-  #是否采集内容  默认False
-  content: ${GATHER.CONTENT:-False}
+  #是否采集内容  默认True(抓正文, AI摘要依赖正文; 若微信读书限流可在.env里改False)
+  content: ${GATHER.CONTENT:-True}
   #采集模式，web模式（可采集到发布链接)，api模式（可采集临时链接），app模式（采集最新消息），weread_mp（微信读书）
   model: ${GATHER_MODEL:-web}
   #是否自动检查未采集文章内容，默认False
