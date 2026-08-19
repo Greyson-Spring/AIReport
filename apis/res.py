@@ -57,6 +57,10 @@ async def reverse_proxy(request: Request, path: str):
             )
     
     target_url = path
+    # 保留原图片URL的查询参数(如 wx_fmt=jpeg), 否则部分图片格式会失效
+    if request.query_params:
+        sep = "&" if "?" in target_url else "?"
+        target_url = f"{target_url}{sep}{request.query_params}"
     
     client = httpx.AsyncClient()
     request_data = await request.body()
