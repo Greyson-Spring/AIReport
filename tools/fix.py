@@ -1,5 +1,17 @@
 import copy
+import re
 from core.models.article import Article
+
+# 微信图床域名: 图片地址改走后端代理(/static/res/logo/...), 解决防盗链
+_PROXY_IMG_RE = re.compile(
+    r'(<img[^>]*?src=["\'])(https?://(?:mmbiz\.qpic\.cn|mmbiz\.qlogo\.cn|mmecoa\.qpic\.cn)/[^"\']*)',
+    re.IGNORECASE,
+)
+
+def proxy_content_images(content: str) -> str:
+    if not content:
+        return content
+    return _PROXY_IMG_RE.sub(r'\1/static/res/logo/\2', content)
 
 def sanitize_utf8(content: str) -> str:
     """清理字符串中的非法UTF-8字符"""
@@ -38,4 +50,5 @@ def fix_html(content:str):
 def fix_article(article):
     art=article.to_dict()
     art['content']=fix_html(art.get('content') or "")
+    art['content']=proxy_content_images(art['content'])
     return art
