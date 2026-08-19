@@ -16,6 +16,7 @@ from views.config import base
 from driver.wxarticle import Web
 from core.cache import cache_view, clear_cache_pattern, data_cache
 from sqlalchemy.orm import defer
+from tools.fix import fix_html
 # 创建路由器
 router = APIRouter(tags=["文章详情"])
 @router.get("/article/{article_id}", response_class=HTMLResponse, summary="文章详情页")
@@ -89,7 +90,7 @@ async def article_detail_view(
             "url": article.url,
             "publish_time": datetime.fromtimestamp(article.publish_time).strftime('%Y-%m-%d %H:%M') if article.publish_time else "",
             "created_at": article.created_at.strftime('%Y-%m-%d %H:%M') if article.created_at else "",
-            "content": (article.content or article.content_html or ""),
+            "content": fix_html(article.content or article.content_html or ""),
             "mp_name": feed.mp_name if feed else "未知公众号",
             "mp_id": article.mp_id,
             "mp_cover": Web.get_image_url(feed.mp_cover) if feed else "",
