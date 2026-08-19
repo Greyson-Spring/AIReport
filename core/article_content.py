@@ -49,6 +49,14 @@ def _fetch_with_web(url: str) -> str:
     return (result.get("content") or "").strip()
 
 
+def _fetch_with_weread(review_id: str) -> str:
+    """通过宿主机账号池的已登录Chrome会话抓正文(不依赖WEREAD_COOKIE)"""
+    from core.wx.model.weread_mp import MpsWereadMP
+
+    wx = MpsWereadMP()
+    return wx._get_mp_content_via_agent(review_id)
+
+
 def _fetch_with_api(url: str) -> str:
     from core.wx.model.api import MpsApi
 
@@ -56,9 +64,23 @@ def _fetch_with_api(url: str) -> str:
     return (fetcher.content_extract(url) or "").strip()
 
 
-def fetch_article_content(url: str, preferred_mode: str | None = None) -> Tuple[str, str]:
+def fetch_article_content(
+    url: str, preferred_mode: str | None = None, review_id: str | None = None
+) -> Tuple[str, str]:
     mode = normalize_content_mode(preferred_mode)
     modes = [mode] + [item for item in ("web", "api") if item != mode]
+
+    # 优先走微信读书账号池通道(登录会话有效, 比匿名抓URL稳)
+    if review_id:
+        try:
+            content = _fetch_with_weread(review_id)
+        except Exception as exc:
+            print_warning(f"fetch article content failed in weread mode: {exc}")
+            content = ""
+        if content == "DELETED":
+            return content, "weread"
+        if content:
+            return content, "weread"
 
     for current_mode in modes:
         try:
@@ -93,7 +115,11 @@ def sync_article_content(
         print_warning(f"article {getattr(article, 'id', '')} has no valid url")
         return False, "missing_url"
 
-    content, mode = fetch_article_content(article_url, preferred_mode)
+    review_id = extract_origin_article_id(
+        getattr(article, "id", ""),
+        getattr(article, "mp_id", ""),
+    )
+    content, mode = fetch_article_content(article_url, preferred_mode, review_id)
     if not content:
         return False, mode
 

@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 
 from core.log import logger
 from core.models.feed import Feed
-from core.print import print_info
+from core.print import print_info, print_warning
 from core.wx.model.weread import MpsWeread
 
 
@@ -161,6 +161,11 @@ class MpsWereadMP(MpsWeread):
         return payload
 
     def _get_mp_content(self, review_id: str):
+        # 优先走宿主机账号池Chrome会话(会话有效, 不依赖WEREAD_COOKIE)
+        content = self._get_mp_content_via_agent(review_id)
+        if content:
+            return content
+        # 兜底: 用config里的WEREAD_COOKIE直接请求微信读书
         headers = self._request_headers()
         headers["Accept"] = "text/html,application/xhtml+xml,*/*"
         try:
@@ -179,6 +184,37 @@ class MpsWereadMP(MpsWeread):
                 f"article content returned HTTP {response.status_code}",
             )
         return extract_mp_content(response.text)
+
+    def _get_mp_content_via_agent(self, review_id: str) -> str:
+        """通过宿主机账号池的已登录Chrome会话抓正文, 失败返回空字符串"""
+        from core.config import cfg as _cfg
+        import urllib.request as _urlreq
+        agent_url = _cfg.get(
+            "weread.host_agent", "http://host.docker.internal:9000"
+        ).replace("/fetch", "")
+        try:
+            body = json.dumps({"review_id": review_id}).encode("utf-8")
+            req = _urlreq.Request(agent_url + "/content", data=body,
+                                  headers={"Content-Type": "application/json"})
+            with _urlreq.urlopen(req, timeout=90) as resp:
+                text = resp.read().decode("utf-8")
+        except Exception as exc:
+            print_warning(f"账号池抓正文失败({review_id}): {exc}")
+            return ""
+        if not text:
+            return ""
+        # 代理返回错误包装(JSON)时跳过
+        try:
+            payload = json.loads(text)
+            if isinstance(payload, dict) and payload.get("errCode"):
+                return ""
+        except Exception:
+            pass
+        try:
+            return extract_mp_content(text)
+        except Exception as exc:
+            print_warning(f"账号池正文解析失败({review_id}): {exc}")
+            return ""
 
     def get_Articles(
         self,

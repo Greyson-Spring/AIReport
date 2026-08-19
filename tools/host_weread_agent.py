@@ -132,6 +132,67 @@ def _do_fetch(book_id, offset, port):
             pass
     return text, tab
 
+def _do_fetch_content(review_id, port):
+    """在已登录的Chrome阅读器页里执行 fetch('/web/mp/content'), 拿文章正文HTML
+    (不依赖WEREAD_COOKIE, 直接用Chrome的微信读书登录会话)"""
+    tab = find_reader_page(port)
+    if not tab:
+        return json.dumps({'errCode': 'NO_READER_PAGE',
+                           'errMsg': '没有找到微信读书阅读器页'}), None
+    ws_url = f'ws://localhost:{port}/devtools/page/' + tab['id']
+    try:
+        ws = websocket.create_connection(ws_url, timeout=30)
+        ws.settimeout(30)
+    except Exception as e:
+        return json.dumps({'errCode': 'CDP_CONNECT_FAIL', 'errMsg': str(e)}), tab
+    js = ("fetch('/web/mp/content?reviewId=%s',{credentials:'include'})"
+          ".then(r=>r.text())" % review_id)
+    try:
+        ws.send(json.dumps({'id': 1, 'method': 'Runtime.evaluate', 'params': {
+            'expression': js, 'awaitPromise': True, 'returnByValue': True}}))
+        while True:
+            msg = json.loads(ws.recv())
+            if msg.get('id') == 1:
+                res = msg.get('result', {}).get('result', {})
+                if res.get('exceptionDetails'):
+                    text = json.dumps({'errCode': 'EVAL_ERROR',
+                                       'errMsg': res['exceptionDetails'].get('text', '')})
+                else:
+                    text = res.get('value', '')
+                break
+    except Exception as e:
+        text = json.dumps({'errCode': 'CDP_RECV_FAIL', 'errMsg': str(e)})
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+    return text, tab
+
+def fetch_content(review_id, port_override=None):
+    """按reviewId抓取文章正文, 账号报错时自动换下一个账号"""
+    ports = [int(port_override)] if port_override else list(CHROME_PORTS)
+    if not ports:
+        return json.dumps({'errCode': 'NO_ACCOUNT', 'errMsg': '没有配置任何账号'})
+    last_text = None
+    for port in ports:
+        text, tab = _do_fetch_content(review_id, port)
+        # 页面异常 → 刷新后重试一次
+        if text and 'NO_READER_PAGE' in text:
+            if tab:
+                print(f'[weread-agent] 账号{port} 无阅读器页, 刷新后重试...')
+                recover_page(port, tab, None)
+            else:
+                print(f'[weread-agent] 账号{port} 自动打开阅读器页...')
+                open_reader_page(port)
+            time.sleep(2)
+            text, _ = _do_fetch_content(review_id, port)
+        # 拿到非错误包装的内容即返回
+        if text and 'errCode' not in text and 'errMsg' not in text:
+            return text
+        last_text = text
+    return last_text
+
 def record_error(port, text):
     """记录账号的最近错误状态(供前端展示)"""
     try:
@@ -410,6 +471,11 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path.startswith('/remove'):
                 port = int(body.get('port', 0))
                 result = remove_chrome(port)
+            elif self.path.startswith('/content'):
+                # 抓文章正文: 在已登录Chrome里 fetch /web/mp/content?reviewId=...
+                review_id = str(body.get('review_id', ''))
+                port_override = int(body['port']) if body.get('port') else None
+                result = fetch_content(review_id, port_override)
             else:
                 book_id = str(body.get('book_id', ''))
                 offset = int(body.get('offset', 0))
