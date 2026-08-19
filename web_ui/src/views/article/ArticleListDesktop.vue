@@ -685,7 +685,7 @@ const buildLeftSidebarData = async (searchKeyword = '') => {
   try {
     console.log('开始构建左侧数据...')
     
-    // 1. 并行获取所有文件夹和所有公众号（不分页，假设不会超过100个）
+    // 1. 并行获取所有文件夹和所有公众号（分页，假设不会超过1000个）
     const [folderListRes, allFeedsRes] = await Promise.all([
       getFolderList(),
       getSubscriptions({ page: 0, pageSize: 1000 })
@@ -1335,12 +1335,7 @@ const handleMpSearch = () => {
   buildLeftSidebarData(mpSearchText.value.trim())
 }
 
-// 监听筛选类型变化，重置分页并重新请求
-// watch(mpFilterType, () => {
-//   mpPagination.value.current = 1
-//   // fetchMpList()
-//   console.log('分页功能暂未实现，等待后续优化')
-// })
+
 // 监听筛选类型变化，重新构建左侧数据
 watch(mpFilterType, () => {
   // buildLeftSidebarData()  // 重新构建左侧数据
