@@ -445,16 +445,25 @@ def remove_chrome(port):
     import time
     import shutil
     try:
-        subprocess.run(['pkill', '-f', f'remote-debugging-port={port}'],
+        subprocess.run(['pkill', '-9', '-f', f'remote-debugging-port={port}'],
                        capture_output=True, timeout=10)
     except Exception:
         pass
-    # 等进程退出, 释放文件句柄后再删用户数据, 否则删除不干净
-    time.sleep(1)
+    # 等进程完全退出释放文件句柄(渲染进程较多, 1秒不够, 多等一会)
+    time.sleep(3)
     profile = os.path.expanduser(f'~/.weread-chrome-{port}')
     if os.path.exists(profile):
-        shutil.rmtree(profile, ignore_errors=True)
-        print(f'[weread-agent] 已删除账号{port}的用户数据({profile})')
+        # 删除失败重试几次(Chrome进程未完全释放时rmtree会失败)
+        for attempt in range(3):
+            try:
+                shutil.rmtree(profile)
+                break
+            except Exception:
+                time.sleep(2)
+        if os.path.exists(profile):
+            print(f'[weread-agent] 警告: 账号{port}用户数据删除不完整({profile})')
+        else:
+            print(f'[weread-agent] 已删除账号{port}的用户数据({profile})')
     if port in CHROME_PORTS:
         CHROME_PORTS.remove(port)
     ACCOUNT_STATUS.pop(port, None)
