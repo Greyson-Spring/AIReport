@@ -159,11 +159,20 @@ class MpsWereadMP(MpsWeread):
         _raise_response_error(payload)
         return payload
 
-    def _get_mp_content(self, review_id: str):
+    def _get_mp_content(self, review_id: str, article_url: str = None):
         # 优先走宿主机账号池Chrome会话(会话有效, 不依赖WEREAD_COOKIE)
         content = self._get_mp_content_via_agent(review_id)
         if content:
             return content
+        # 回退1: 直接请求原文URL(api通道, 快且稳, 不依赖Playwright浏览器)
+        if article_url:
+            try:
+                from core.article_content import _fetch_with_api
+                content = _fetch_with_api(article_url)
+                if content:
+                    return content
+            except Exception:
+                pass
         # 兜底: 用config里的WEREAD_COOKIE直接请求微信读书
         headers = self._request_headers()
         headers["Accept"] = "text/html,application/xhtml+xml,*/*"
@@ -294,7 +303,7 @@ class MpsWereadMP(MpsWeread):
                             time.sleep(content_interval)
                         content_request_count += 1
                         try:
-                            item["content"] = self._get_mp_content(item["aid"])
+                            item["content"] = self._get_mp_content(item["aid"], item.get("link"))
                         except WereadMPAPIError as exc:
                             logger.warning(f"微信读书正文获取失败 [{item['aid']}]: {exc}")
                             content_failures.append(item["aid"])
