@@ -68,9 +68,8 @@ def find_any_page(port):
     return None
 
 def reader_url_for(book_id=None):
-    """阅读器页地址: 优先用当前要抓的公众号bookId, 没有才退回写死的链接"""
-    if book_id:
-        return f'https://weread.qq.com/web/mp/reader/{book_id}'
+    """阅读器页地址: 一律用写死的有效链接。
+    注意: 用bookId拼的 /web/mp/reader/MP_WXS_xxx 对微信读书无效, 会跳走, 不能再用来开阅读器页"""
     return READER_URL
 
 def open_reader_page(port, book_id=None):
@@ -416,7 +415,8 @@ def spawn_chrome(port=None):
         return {'err': 'no chrome binary found'}
     profile = os.path.expanduser(f'~/.weread-chrome-{port}')
     env = dict(os.environ)
-    env.setdefault('DISPLAY', ':99')
+    # 强制用服务器上的虚拟显示(Xvfb :99), 避免MobaXterm等X转发把Chrome弹到用户电脑上
+    env['DISPLAY'] = ':99'
     cmd = [chrome, f'--remote-debugging-port={port}', '--remote-allow-origins=*',
            f'--user-data-dir={profile}', '--no-sandbox', '--disable-dev-shm-usage',
            'https://weread.qq.com/']

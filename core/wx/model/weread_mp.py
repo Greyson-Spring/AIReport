@@ -34,18 +34,17 @@ def build_mp_url(original_id: str) -> str:
 
 def _raise_response_error(payload: dict):
     code = payload.get("errCode", payload.get("errcode", 0))
-    try:
-        code = int(code or 0)
-    except (TypeError, ValueError):
-        code = 0
-    if code == 0:
+    # 有 errCode 即视为错误(包括字符串错误, 如代理返回的 NO_READER_PAGE / CDP_CONNECT_FAIL)
+    if code is None or code == "" or code == 0:
         return
     message = payload.get("errMsg") or payload.get("errmsg") or str(code)
-    raise WereadMPAPIError(
-        code,
-        message,
-        retriable=code not in (-2041, -2012, -2010),
-    )
+    try:
+        int_code = int(code)
+    except (TypeError, ValueError):
+        int_code = code
+    # 字符串错误(代理/基础设施问题)可重试; 数字错误沿用原有规则
+    retriable = int_code not in (-2041, -2012, -2010) if isinstance(int_code, int) else True
+    raise WereadMPAPIError(int_code, message, retriable=retriable)
 
 
 def parse_mp_articles(payload: dict):
