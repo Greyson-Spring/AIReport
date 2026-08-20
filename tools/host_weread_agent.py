@@ -236,13 +236,13 @@ def fetch_articles(book_id, offset=0, port_override=None):
             err = json.loads(text).get('errCode')
         except Exception:
             err = None
-        # 页面异常 → 刷新重试一次(用当前公众号的bookId开阅读器页)
+        # 页面异常 → 刷新重试一次(打开写死的有效阅读器页)
         if err in ('CDP_RECV_FAIL', 'CDP_CONNECT_FAIL', 'EVAL_ERROR', 'NO_READER_PAGE'):
             if tab:
                 print(f'[weread-agent] 账号{port} 页面异常({err}), 刷新后重试...')
                 recover_page(port, tab, book_id)
             else:
-                print(f'[weread-agent] 账号{port} 没有阅读器页, 自动打开({book_id})...')
+                print(f'[weread-agent] 账号{port} 没有阅读器页, 自动打开...')
                 open_reader_page(port, book_id)
             time.sleep(2)
             text, _ = _do_fetch(book_id, offset, port)
@@ -250,16 +250,6 @@ def fetch_articles(book_id, offset=0, port_override=None):
                 err = json.loads(text).get('errCode')
             except Exception:
                 err = None
-            # 用bookId拼的阅读器页可能不生效 → 回退到写死的有效阅读器链接再试一次
-            if err == 'NO_READER_PAGE':
-                print(f'[weread-agent] 账号{port} bookId阅读器页未生效, 改用写死阅读器链接...')
-                open_reader_page(port, None)
-                time.sleep(2)
-                text, _ = _do_fetch(book_id, offset, port)
-                try:
-                    err = json.loads(text).get('errCode')
-                except Exception:
-                    err = None
         record_error(port, text)
         # 成功 → 返回
         if 'reviews' in text:
