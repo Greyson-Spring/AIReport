@@ -251,6 +251,16 @@ def fetch_articles(book_id, offset=0, port_override=None):
                 err = json.loads(text).get('errCode')
             except Exception:
                 err = None
+            # 用bookId拼的阅读器页可能不生效 → 回退到写死的有效阅读器链接再试一次
+            if err == 'NO_READER_PAGE':
+                print(f'[weread-agent] 账号{port} bookId阅读器页未生效, 改用写死阅读器链接...')
+                open_reader_page(port, None)
+                time.sleep(2)
+                text, _ = _do_fetch(book_id, offset, port)
+                try:
+                    err = json.loads(text).get('errCode')
+                except Exception:
+                    err = None
         record_error(port, text)
         # 成功 → 返回
         if 'reviews' in text:
