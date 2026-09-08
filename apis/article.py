@@ -399,23 +399,26 @@ async def get_articles(
                     UserFeed.user_id == user_id
                 ).all()
                 if subscriptions:
-                    feed_filters = []
+                    enabled_ids = []
+                    conds = []
                     for sub in subscriptions:
                         if sub.status == 1:
-                            # 启用状态：显示该公众号全部文章
-                            feed_filters.append(ArticleBase.mp_id == sub.feed_id)
+                            # 启用状态：显示该公众号全部文章(合并成一个IN, 避免上百个OR导致MySQL放弃索引全表扫描)
+                            enabled_ids.append(sub.feed_id)
                         elif sub.status == 0 and sub.disabled_at is not None:
                             # 停用状态：只显示停用时间之前已发布的文章
                             disabled_ts = int(sub.disabled_at.timestamp())
-                            feed_filters.append(
+                            conds.append(
                                 and_(
                                     ArticleBase.mp_id == sub.feed_id,
                                     ArticleBase.publish_time.isnot(None),
                                     ArticleBase.publish_time <= disabled_ts
                                 )
                             )
-                    if feed_filters:
-                        query = query.filter(or_(*feed_filters))
+                    if enabled_ids:
+                        conds.append(ArticleBase.mp_id.in_(enabled_ids))
+                    if conds:
+                        query = query.filter(or_(*conds))
                     else:
                         # 没有可访问的订阅，返回空
                         query = query.filter(false())
