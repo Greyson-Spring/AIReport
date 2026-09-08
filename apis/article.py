@@ -329,7 +329,7 @@ async def clean_duplicate(
 
 
 @router.api_route("", summary="获取文章列表",methods= ["GET", "POST"], operation_id="get_articles_list")
-async def get_articles(
+def get_articles(
     offset: int = Query(0, ge=0),
     limit: int = Query(5, ge=1, le=100),
     status: str = Query(None),
