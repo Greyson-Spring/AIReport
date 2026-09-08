@@ -344,15 +344,9 @@ def get_articles(
     try:
         from sqlalchemy import case, func, or_, and_, false
 
-        # 构建查询条件 - 使用 ArticleBase 并通过 case 表达式判断是否有正文
-        # 避免加载大量 content 数据
-        query = session.query(
-            ArticleBase,
-            case(
-                ((Article.content.isnot(None)) & (Article.content != ''), 1),
-                else_=0
-            ).label('has_content')
-        )
+        # 构建查询条件 - 只查 ArticleBase(轻量列), 不在列表查询里读 content 大字段。
+        # 原 case 判断 content<>'' 会让 MySQL 在排序/扫描时读取全部正文 TEXT 列 → 全表扫+filesort 极慢(数秒~数十秒)
+        query = session.query(ArticleBase)
         if status:
             query = query.filter(ArticleBase.status == status)
         else:
@@ -502,8 +496,7 @@ def get_articles(
         # 查询公众号名称
         from core.models.feed import Feed
         mp_names = {}
-        for result in results:
-            article = result[0]  # ArticleBase 对象
+        for article in results:
             if article.mp_id and article.mp_id not in mp_names:
                 feed = session.query(Feed).filter(Feed.id == article.mp_id).first()
                 mp_names[article.mp_id] = feed.mp_name if feed else "未知公众号"
@@ -517,7 +510,7 @@ def get_articles(
             if ou:
                 uid = ou.username
         if uid and results:
-            article_ids = [result[0].id for result in results]
+            article_ids = [a.id for a in results]
             fav_records = session.query(UserFavorite).filter(
                 UserFavorite.user_id == uid,
                 UserFavorite.article_id.in_(article_ids)
@@ -535,15 +528,23 @@ def get_articles(
             read_article_ids = {r.article_id for r in read_records}
 
         # 合并公众号名称到文章列表
+        # 对"返回的这10篇"单独判断是否有正文(只读这几篇的content, 避免读全表正文TEXT列)
+        has_content_ids = set()
+        if results:
+            _rows = session.query(Article.id).filter(
+                Article.id.in_([a.id for a in results]),
+                Article.content.isnot(None),
+                Article.content != "",
+            ).all()
+            has_content_ids = {r[0] for r in _rows}
+
         article_list = []
-        for result in results:
-            article = result[0]  # ArticleBase 对象
-            has_content_val = result[1]  # has_content 计算值
+        for article in results:
             article_dict = article.__dict__.copy()
             article_dict["mp_name"] = mp_names.get(article.mp_id, "未知公众号")
             article_dict["is_favorite"] = 1 if article.id in favorited_article_ids else 0
             article_dict["is_read"] = 1 if article.id in read_article_ids else 0
-            article_dict["has_content"] = has_content_val
+            article_dict["has_content"] = 1 if article.id in has_content_ids else 0
             article_list.append(article_dict)
         
         from .base import success_response
