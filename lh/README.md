@@ -80,7 +80,7 @@ docker cp we-mp-rss-local:/app/riscv_summary_2026-08-01_2026-08-31_report.docx .
 ## 六、注意事项
 
 1. **提示词不能改**：脚本原样读两个 prompt 文件，别动内容；
-2. **LLM 配置**：若报"未找到LLM配置"，去"大模型配置"页填，或运行时用环境变量注入：
+2. **LLM 配置**：若报"未找到LLM配置"，去知枢的"大模型配置"页填，或运行时用环境变量注入：
    ```bash
    docker exec -it we-mp-rss-local sh -c 'cd /app && PY=$(ls -d /app/env*/bin/python 2>/dev/null | head -1); AI_API_URL="..." AI_API_KEY="..." AI_MODEL="..." "$PY" lh/riscv_summary_export.py 2026-08-01 2026-08-31'
    ```

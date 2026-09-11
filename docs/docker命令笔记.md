@@ -18,7 +18,7 @@
 - **一个镜像能启动多个容器**，但**容器名必须唯一**（同名会冲突；不指定则 Docker 随机起名）。
   > 类比：一个 Word 安装包能开很多个窗口，但每个窗口得有不同的名字来区分。**镜像名（模板）只有一个，容器名（每个实例）各不相同**——不矛盾。
 - 容器内部 = 一台独立的小电脑（完整文件系统），所以里面有各种目录。
-- 命令里的 `we-mp-rss-local` 是**容器名**（不是镜像名）。
+- 命令里的 `we-mp-rss-local` 是**容器名**（自定义的，不是镜像名）。
 
 ### 1.2 镜像名与标签（tag）
 
@@ -89,7 +89,7 @@ docker logs -f 容器名                       # 实时跟随日志
 scp "C:\xx\xx\文件.py" appadmin@10.188.26.61:~/AIReport/lh/
 ```
 
-**为什么路径要加双引号**：防止路径被 shell "拆开"。路径里有**空格**（如 `project deploy`）或 `* ? ( ) $` 等特殊字符时，不加引号会被当成多个参数 → 报错。加双引号 = "这一整串是一个路径"。**都加上更保险**。
+**为什么路径要加双引号（也可以不加）**：防止路径被 shell "拆开"。路径里有**空格**（如 `project deploy`）或 `* ? ( ) $` 等特殊字符时，不加引号会被当成多个参数 → 报错。加双引号 = "这一整串是一个路径"。**都加上更保险**。
 
 ### 3.2 `docker cp`：服务器(宿主机) ⇄ 容器
 
@@ -184,7 +184,7 @@ cd ~/AIReport   # compose 文件在 compose/ 下, 相对路径都基于它
 # 启动 yaml 里所有服务(镜像不存在会自动 build)
 docker compose -f compose/docker-compose.local.yaml up -d
 
-# 只启动/重建单个服务(改了代码后用它)
+# 只启动/重建单个服务(改了相关容器的代码后用它)
 docker compose -f compose/docker-compose.local.yaml up -d --build we-mp-rss
 
 # 重启(不重建)
@@ -239,6 +239,7 @@ docker compose -f compose/docker-compose.local.yaml logs -f we-mp-rss-local
 | 重建+启动单服务 | `docker compose -f compose/docker-compose.local.yaml up -d --build we-mp-rss` |
 | 看 compose 状态 | `docker compose -f compose/docker-compose.local.yaml ps` |
 | 停整套 | `docker compose -f compose/docker-compose.local.yaml stop` |
+|查看容器所占cpu|`docker stats`|
 
 ---
 

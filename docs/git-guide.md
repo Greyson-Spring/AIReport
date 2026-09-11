@@ -277,6 +277,7 @@ git push                      # 已建立追踪，直接 push
 | `git remote -v` | 查看远程仓库地址 |
 | `git remote add 别名 地址` | 添加远程仓库 |
 | `git rm --cached 文件名` | 从 git 跟踪中移除，但保留本地文件 |
+| `git -c"文件路径" log --oneline -10`|这个是查git push记录吗|
 
 ---
 

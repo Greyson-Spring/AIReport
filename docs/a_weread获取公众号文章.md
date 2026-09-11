@@ -29,7 +29,7 @@
             └─ 阅读页里执行 fetch('/web/mp/articles?bookId=...', {credentials:'include'})
                  → 微信读书返回文章 JSON → 经 CDP 通道传回代理 → 回传给容器后端
                       │
-后端解析 → 回调 jobs/article.py UpdateArticle → DB.add_article → 存进 MySQL
+后端解析 → 回调 jobs/article.py UpdateArticle回调 → DB.add_article → 存进 MySQL
 ```
 
 ## 三、完整抓取链路（逐步 + 涉及文件）
@@ -50,6 +50,15 @@
 
 ### 4.1 `fetch()` 是啥
 不是 Linux 命令，是**网页 JavaScript 里发网络请求的函数**。执行后返回一个 Promise，`.then(r => r.text())` 把响应读成文本。
+`fetch('/web/mp/articles?bookId=...', {credentials:'include'}).then(r => r.text())`
+- 浏览器执行它 → 微信读书服务器返回 JSON 文本 → JS 拿到这段文本。
+- 关键：它不是"下载到服务器本地文件"，而是把结果作为 JS 的返回值"传回去"。 流程：
+- 宿主机代理 _do_fetch():
+   ① 通过 CDP 向 Chrome 阅读页发 Runtime.evaluate 指令
+   ② Chrome 执行上面那段 JS → fetch 拿到 JSON 文本
+   ③ JSON 文本作为"JS 执行结果" → 通过 CDP 的 WebSocket 通道 传回代理进程
+   ④ 代理把文本作为 HTTP 响应 返回给容器后端
+- 类比：你不是让浏览器"把文件存到硬盘"，而是让它在页面里"发起请求并拿到结果文本"，结果由代理伸手从浏览器里接过来（CDP 通道），再转手交给后端。全程只是内存里传递字符串，不落盘。
 
 ### 4.2 JSON 是怎么"回到后端"的（不落盘）
 ```
@@ -63,7 +72,10 @@ Chrome 阅读页执行 fetch → 拿到 JSON 文本
 ### 4.3 回调函数（Callback）是啥
 回调 = 你把一个**函数**作为参数传给调用方，调用方在合适时机"回头调用"它。
 `weread_mp.py` 里 `CallBack=UpdateArticle`：采集器每解析出一篇文章，就调用一次 `UpdateArticle(art)`，由它把文章存进数据库。**调用方不知道你拿到文章想干嘛，通过回调让你决定**。回调与"钩子(hook)"是同一家族：满足条件/时机就调用你给的那个函数。
-
+先回答你的理解：对，回调和钩子本质是同一家族——都是"满足条件/时机到了，就调用你给的那个函数"。微妙的区别只是：
+- 回调：你把自己的函数作为参数传给调用方，调用方在完成时"回头调用"（如 CallBack=UpdateArticle）；
+- 钩子：系统在流程里预留插口，你把自己的逻辑挂上去，事件发生时系统调它（如 webhook、生命周期钩子）。
+很多场合两者可互换。你抓到"触发→调用"这个本质就对了。
 ## 五、采集器体系（GATHER_MODEL 是什么）
 
 - `GATHER_MODEL` 是**环境变量**（写在 `.env`，程序启动读进配置 `gather.model`），决定**用哪个采集器**。
@@ -76,8 +88,28 @@ Chrome 阅读页执行 fetch → 拿到 JSON 文本
 | `app` | MpsAppMsg | 微信 App 消息接口 | 备选 |
 | `api` | MpsApi | 微信公众平台 API | 备选 |
 
-默认值 `web`（config.example.yaml `${GATHER_MODEL:-web}`）。只有 `weread_mp` 走"宿主机代理 + Chrome"。
-
+> 四种都继承 base.py 的 WxGather
+> 默认值 `web`（config.example.yaml `${GATHER_MODEL:-web}`）。只有 `weread_mp` 走"宿主机代理 + Chrome"。
+## 5.1 基类
+1. 定义
+- 基类 = 被别的类"继承"的类。class MpsWereadMP(MpsWeread) 表示 MpsWereadMP 自动拥有 MpsWeread 的所有能力，再自己加东西。
+- 类比：MpsWeread = "微信读书通用工具箱"（会读 cookie、会发请求、会采书架笔记）；MpsWereadMP = "专抓公众号的那个采集器"——继承了工具箱，再加了"抓公众号文章"的逻辑。
+2. 关系
+|文件| 类 |	关系 | 在公众号抓取里|
+|---|---|---|---|
+|`core/wx/model/weread.py`|	MpsWeread|	基类|	被继承（提供读 cookie 等）|
+|`core/wx/model/weread_mp.py`|	MpsWereadMP|	子类|	✅ 主力（抓公众号）|
+|`apis/weread.py`|	— |	管理接口|旁路（配置 cookie/读书笔记用）|
+3. 采集器的基类
+core/wx/base.py = *所有采集器的"公共底座" + 选采集器的"工厂"*，干两件事：
+① 工厂 Model()：按 gather.model 决定用哪个采集器。你在 Model() 里传入类型，它返回对应的采集器对象。
+② 公共基类 WxGather：web/app/api/weread_mp 这四种采集器都继承它，共用它的通用能力：
+- 文章列表去重（HasGathered/aids）；
+- 加载 token/Cookie/User-Agent（get_token）；
+- 代理（_get_proxies）；
+- 把"文章字典"转成标准格式并触发回调存库（FillBack）；
+- 开始/结束/出错/等待等流程控制（Start/Over/Error/Wait）。
+所以 base.py = "地基"，四个采集器 = "盖的不同楼"。
 ## 六、登录与凭据
 
 - **主流程靠 Chrome 扫码登录**：代理在阅读页用 `credentials:'include'`，用的是**浏览器本身的登录态**（扫码登录的），不是 .env 的 Cookie。
